@@ -13,16 +13,29 @@
   var MAX_CHIPS = 8;   // 2026-09-08 Eason 拍板：候選固定 8 個，不要更多
   var list = [];
 
+  /* 進來就正規化成字串——全系統只在這一個地方處理型別。
+     為什麼需要：Google 試算表會把「1234」這種純數字的項目名稱回成 Number，
+     後面任何 .replace()／.toLowerCase() 都會炸，而且是在登入時炸，整個系統進不去。
+     2026-09-08 上線首日實際踩到（mock 資料全是字串，所以測不出來）。 */
+  function norm(f) {
+    return {
+      subject: String(f && f.subject != null ? f.subject : ''),
+      name: String(f && f.name != null ? f.name : ''),
+      count: Number(f && f.count) || 0,
+      lastUsed: String(f && f.lastUsed != null ? f.lastUsed : '')
+    };
+  }
+
   function load() {
     try {
       var raw = localStorage.getItem(CACHE_KEY);
-      if (raw) list = JSON.parse(raw) || [];
+      if (raw) list = (JSON.parse(raw) || []).map(norm);
     } catch (e) { list = []; }
     return list;
   }
 
   function set(rows) {
-    list = (rows || []).slice();
+    list = (rows || []).map(norm);
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(list)); } catch (e) {}
   }
 

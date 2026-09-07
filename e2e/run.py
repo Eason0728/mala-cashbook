@@ -155,8 +155,21 @@ def run_login(page, data):
 
     page.fill('#passcode', data['passcode'])
     click(page, '#btn-login', '正確通行碼進入登記畫面')
-    page.wait_for_selector('#view-entry:not([hidden])', timeout=15000)
-    check('正確通行碼可以進入', True)
+    # 進不去就直接中止並印 FAIL——裁判要報告失敗，不是自己 crash 掉。
+    # 2026-09-08：常用項目裡混了 Number 名稱時，登入會炸在 renderChips，
+    # 當時測試是整支例外結束，看不出是哪一項壞了。
+    try:
+        page.wait_for_selector('#view-entry:not([hidden])', timeout=15000)
+        entered = True
+    except Exception as e:
+        entered = False
+        print('　　登入卡住了，畫面錯誤訊息：%s' % text(page, '#login-error'))
+    check('正確通行碼可以進入', entered, text(page, '#login-error'))
+    if not entered:
+        raise SystemExit(report_and_exit())
+    # 常用項目裡混了 Number 與 None 的名稱（試算表會這樣回），登入不能因此炸掉
+    check('髒型別的常用項目不會擋住登入', text(page, '#login-error') == '',
+          text(page, '#login-error'))
     shot(page, '01-登記畫面')
 
 
@@ -211,6 +224,11 @@ def run_entry(page, data, exp):
     page.wait_for_timeout(250)
     chips = page.evaluate("() => [...document.querySelectorAll('#name-chips .chip')].map(c => c.dataset.name)")
     check('常用快選有出現且不超過 8 個', 0 < len(chips) <= 8, '%d 個' % len(chips))
+    # 數字名稱要被轉成字串照樣顯示得出來，不能整組候選消失
+    numeric = [c for c in chips if c and c.isdigit()]
+    check('數字型的項目名稱有被正規化成字串',
+          page.evaluate("() => window.Memory.recent().every(f => typeof f.name === 'string')"),
+          '仍有非字串的 name')
     if chips:
         click(page, '#name-chips .chip', '點快選帶入名稱與科目')
         page.wait_for_timeout(200)
@@ -436,6 +454,18 @@ def run_lock(page, data):
     check('解鎖後回到可編輯', '可以編輯' in text(page, '#lock-state'), text(page, '#lock-state'))
     CM.scan(page, '匯出（解鎖後）')
     shot(page, '05-月結鎖定')
+
+
+def report_and_exit():
+    """登入就掛掉時提早收尾：印出目前為止的結果，不要留一堆例外堆疊。"""
+    failed = [r for r in RESULTS if not r[1]]
+    print('\n' + '=' * 72)
+    print('共 %d 項檢查，通過 %d，失敗 %d（登入失敗，後續未執行）'
+          % (len(RESULTS), len(RESULTS) - len(failed), len(failed)))
+    for n, _, d in failed:
+        print('  ❌ %s　%s' % (n, d))
+    print('=' * 72)
+    return 1
 
 
 def report(page):

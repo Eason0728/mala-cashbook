@@ -89,7 +89,7 @@ function allRows() {
       _row: i + 2,
       id: r[0], store: r[1],
       date: Utilities.formatDate(new Date(r[2]), 'Asia/Taipei', 'yyyy-MM-dd'),
-      kind: r[3], subject: r[4], name: r[5],
+      kind: String(r[3]), subject: String(r[4]), name: String(r[5]),
       amount: Number(r[6]), hasInvoice: r[7] === '有',
       net: Number(r[8]), tax: Number(r[9]), seq: Number(r[10]),
       photo: r[11], author: r[12], createdAt: r[13],
@@ -121,8 +121,11 @@ function apiBootstrap() {
       expenseSubjects: String(cfg['支出科目'] || '').split(',').filter(String),
       incomeSubjects: String(cfg['收入科目'] || '').split(',').filter(String)
     },
-    frequent: freq.filter(function (r) { return r[0] && r[1]; }).map(function (r) {
-      return { subject: r[0], name: r[1], count: Number(r[2]) || 0, lastUsed: String(r[3] || '') };
+    // 一律轉字串：試算表會把純數字的科目或項目名稱回成 Number，
+    // 前端拿去 .replace()／.toLowerCase() 會直接炸掉整個登入流程
+    frequent: freq.filter(function (r) { return r[0] !== '' && r[1] !== ''; }).map(function (r) {
+      return { subject: String(r[0]), name: String(r[1]),
+               count: Number(r[2]) || 0, lastUsed: String(r[3] || '') };
     }),
     lockedMonths: lockedMonths()
   };

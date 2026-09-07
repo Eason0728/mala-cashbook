@@ -34,9 +34,13 @@
     var box = el('name-chips');
     var items = window.Memory.suggest(el('f-name').value, subjects());
     box.innerHTML = items.map(function (f) {
-      return '<button type="button" class="chip" data-name="' +
-             f.name.replace(/"/g, '&quot;') + '" data-subject="' +
-             f.subject.replace(/"/g, '&quot;') + '">' + f.name + '</button>';
+      // 一律轉字串再處理：試算表會把純數字的名稱回成 Number，直接 .replace 會炸
+      var name = String(f.name == null ? '' : f.name);
+      var subject = String(f.subject == null ? '' : f.subject);
+      var esc = function (t) { return t.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                                       .replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+      return '<button type="button" class="chip" data-name="' + esc(name) +
+             '" data-subject="' + esc(subject) + '">' + esc(name) + '</button>';
     }).join('');
   }
 

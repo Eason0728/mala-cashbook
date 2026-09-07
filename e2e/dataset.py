@@ -98,8 +98,27 @@ def make_dataset(seed=None):
          'amount': _tier_amount(rnd), 'hasInvoice': rnd.random() < 0.5, 'known': False},
     ]
 
+    # 常用項目刻意混入試算表會回成 Number 的值：
+    # 純數字的項目名稱（例如收據編號當名稱）Google 試算表讀回來是 Number 不是 String，
+    # 前端拿去 .replace()／.toLowerCase() 會整個炸掉。2026-09-08 上線首日真的踩到，
+    # 而當時 mock 資料全是字串，70 項測試全綠卻擋不住——所以髒型別必須進測試資料。
+    frequent = []
+    seen_keys = set()
+    for r in rows:
+        k = (r['subject'], r['name'])
+        if k not in seen_keys:
+            seen_keys.add(k)
+            frequent.append({'subject': r['subject'], 'name': r['name'],
+                             'count': 1, 'lastUsed': r['createdAt']})
+    dirty_subject = rnd.choice(expense_subjects)
+    frequent.append({'subject': dirty_subject, 'name': rnd.randint(1000, 9999),
+                     'count': 2, 'lastUsed': '%s-20T09:00:00+08:00' % month})
+    frequent.append({'subject': dirty_subject, 'name': None,
+                     'count': 1, 'lastUsed': '%s-19T09:00:00+08:00' % month})
+
     return {
         'seed': seed,
+        'frequent': frequent,
         'store': store,
         'month': month,
         'passcode': passcode,
