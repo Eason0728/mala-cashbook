@@ -1,0 +1,270 @@
+<title>現金帳登記指南</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+  :root {
+    --red: #E8380D;
+    --red-soft: #FDEEE9;
+    --gold: #FABE00;
+    --ink: #231815;
+    --muted: #7C736D;
+    --paper: #FFFDFB;
+    --card: #FFFFFF;
+    --line: #E9E2DB;
+    --ok: #2F7D4F;
+    --ok-soft: #EAF5EE;
+    --shot-frame: #DDD5CE;
+    --font: "Noto Sans TC", -apple-system, BlinkMacSystemFont, "PingFang TC", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --red: #FF6A45;
+      --red-soft: #3A1A12;
+      --gold: #FFCE3A;
+      --ink: #F3EDE9;
+      --muted: #A79C95;
+      --paper: #16110F;
+      --card: #211917;
+      --line: #362B27;
+      --ok: #6FCB92;
+      --ok-soft: #16281D;
+      --shot-frame: #3A2E29;
+    }
+  }
+  :root[data-theme="dark"] {
+    --red: #FF6A45;
+    --red-soft: #3A1A12;
+    --gold: #FFCE3A;
+    --ink: #F3EDE9;
+    --muted: #A79C95;
+    --paper: #16110F;
+    --card: #211917;
+    --line: #362B27;
+    --ok: #6FCB92;
+    --ok-soft: #16281D;
+    --shot-frame: #3A2E29;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px 72px; }
+
+  /* ── 開頭 ── */
+  header { padding: 40px 0 28px; border-bottom: 3px solid var(--red); margin-bottom: 36px; }
+  .eyebrow {
+    font-size: 12px; font-weight: 700; letter-spacing: .22em;
+    color: var(--red); margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(28px, 7vw, 40px); font-weight: 900; line-height: 1.25;
+    margin: 0 0 14px; text-wrap: balance; letter-spacing: -.01em;
+  }
+  .lede { font-size: 17px; color: var(--muted); margin: 0; max-width: 34em; }
+
+  .link-card {
+    margin-top: 26px; padding: 16px 18px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px;
+  }
+  .link-card .k { font-size: 13px; font-weight: 700; color: var(--muted); }
+  .link-card a {
+    font-size: 15px; font-weight: 700; color: var(--red);
+    text-decoration: none; border-bottom: 2px solid var(--red-soft);
+    word-break: break-all;
+  }
+  .link-card a:hover, .link-card a:focus-visible { border-bottom-color: var(--red); }
+
+  /* ── 區塊 ── */
+  section { margin: 0 0 52px; }
+  h2 {
+    font-size: 21px; font-weight: 900; margin: 0 0 6px;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  h2 .n {
+    font-size: 13px; font-weight: 900; color: var(--ink);
+    background: var(--gold); border-radius: 6px;
+    padding: 2px 8px; line-height: 1.5; flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .sub { color: var(--muted); font-size: 15px; margin: 0 0 22px; }
+
+  /* ── 步驟 ── */
+  .step { display: grid; gap: 16px; margin-bottom: 28px; }
+  @media (min-width: 640px) {
+    .step { grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
+  }
+  .shot {
+    margin: 0; border: 1px solid var(--shot-frame); border-radius: 12px;
+    overflow: hidden; background: var(--card); line-height: 0;
+  }
+  .shot img { width: 100%; height: auto; display: block; }
+  .step-body h3 { font-size: 17px; font-weight: 700; margin: 0 0 8px; }
+  .step-body p { margin: 0 0 10px; }
+  .step-body p:last-child { margin-bottom: 0; }
+  .step-body strong { color: var(--red); font-weight: 700; }
+
+  /* ── 三種情況 ── */
+  .cases { display: grid; gap: 12px; margin-top: 18px; }
+  .case {
+    display: grid; grid-template-columns: auto 1fr; gap: 14px;
+    padding: 15px 17px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 12px;
+  }
+  .case .when {
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    white-space: nowrap; padding-top: 2px;
+  }
+  .case .what { margin: 0; }
+  .case .what b { color: var(--red); }
+
+  /* ── 提醒 ── */
+  .note {
+    padding: 18px 20px; border-radius: 12px;
+    background: var(--red-soft); border-left: 4px solid var(--red);
+  }
+  .note.calm { background: var(--ok-soft); border-left-color: var(--ok); }
+  .note p { margin: 0 0 8px; }
+  .note p:last-child { margin-bottom: 0; }
+  .note b { font-weight: 700; }
+
+  ul.plain { margin: 12px 0 0; padding-left: 20px; }
+  ul.plain li { margin-bottom: 8px; }
+  ul.plain li::marker { color: var(--red); }
+
+  footer {
+    margin-top: 12px; padding-top: 24px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 14px;
+  }
+  a:focus-visible, .shot:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">麻的小辛辣・新竹光復店</p>
+  <h1>現金帳登記指南</h1>
+  <p class="lede">店裡當天花的錢、收到的錢，用手機記一筆就好。月底會計自己匯出，不用再抄紙本、也不用等你交表。</p>
+  <div class="link-card">
+    <span class="k">網址</span>
+    <a href="https://eason0728.github.io/mala-cashbook/">eason0728.github.io/mala-cashbook</a>
+  </div>
+</header>
+
+<section>
+  <h2><span class="n">1</span>第一次：把它放到手機桌面</h2>
+  <p class="sub">做一次就好，之後跟一般 App 一樣點圖示就開。</p>
+  <div class="step">
+    <figure class="shot"><img src="{{login}}" alt="登入畫面：品牌 logo 與通行碼輸入欄"></figure>
+    <div class="step-body">
+      <h3>用 Safari 或 Chrome 開網址</h3>
+      <p>開啟後按下方的<strong>分享</strong>，選<strong>加入主畫面</strong>。桌面會出現紅底寫著「支出」的圖示。</p>
+      <p>第一次要輸入<strong>通行碼</strong>（跟主管拿）。輸入過一次就會記住，之後開啟直接進去。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">2</span>每天：記一筆</h2>
+  <p class="sub">拿到收據就記，不要累積到月底。三個欄位而已。</p>
+
+  <div class="step">
+    <figure class="shot"><img src="{{name}}" alt="項目名稱欄位下方出現常用廠商標籤，科目自動帶入食材"></figure>
+    <div class="step-body">
+      <h3>先打廠商或品項</h3>
+      <p>打過的廠商會出現在下面，<strong>點一下就帶進去</strong>，不用整串重打。</p>
+      <p>科目會<strong>自己跳出來</strong>（例如吉順行＝食材），不對的話可以改。第一次用的新廠商會提醒你自己選一次，選過之後它就記住了。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <figure class="shot"><img src="{{amount}}" alt="金額欄位與收據／統一發票的切換，下方顯示未稅與稅額"></figure>
+    <div class="step-body">
+      <h3>打金額，選有沒有發票</h3>
+      <p>照收據上的<strong>總金額</strong>打就好。</p>
+      <p>拿到的是<strong>統一發票</strong>就切「統一發票」，是收據就維持「收據／無發票」。未稅和稅額系統自己算，<strong>你不用算</strong>。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <figure class="shot"><img src="{{done}}" alt="送出後顯示已記錄的綠色訊息與收據編號"></figure>
+    <div class="step-body">
+      <h3>按送出，看到收據編號就成功了</h3>
+      <p>按下去會顯示<strong>送出中幾秒</strong>，這時候<strong>不要連按</strong>——連按會記成兩筆。</p>
+      <p>成功後上面會出現綠色的「已記錄」和<strong>收據編號</strong>。日期會留著，可以直接接著記下一筆。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">3</span>記錯了怎麼辦</h2>
+  <p class="sub">看你在哪個階段發現的，處理方式不一樣。</p>
+  <div class="step">
+    <figure class="shot"><img src="{{open}}" alt="本月清單中點開一列後出現修改與作廢兩個按鈕"></figure>
+    <div class="step-body">
+      <div class="cases">
+        <div class="case">
+          <span class="when">還沒送出</span>
+          <p class="what">直接改欄位，或按<b>清空重填</b>。什麼都不會留下。</p>
+        </div>
+        <div class="case">
+          <span class="when">已經送出</span>
+          <p class="what">到<b>本月清單</b>，<b>點那一列</b>展開，按<b>修改</b>。</p>
+        </div>
+        <div class="case">
+          <span class="when">整筆是錯的</span>
+          <p class="what">同樣點開那一列，按<b>作廢</b>。</p>
+        </div>
+      </div>
+      <div class="note calm" style="margin-top:16px">
+        <p><b>作廢不是刪除。</b>那一筆會留在帳上、標成「已作廢」，只是不算進金額也不會匯給會計。</p>
+        <p>這是刻意的——跟紙本一樣是劃掉不是撕掉，月底對不起來時查得到發生過什麼。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">4</span>月底：會計的事</h2>
+  <p class="sub">你不用做什麼，知道會發生什麼就好。</p>
+  <div class="step">
+    <figure class="shot"><img src="{{export}}" alt="匯出畫面：選月份下載 Excel，以及月結鎖定按鈕"></figure>
+    <div class="step-body">
+      <h3>會計自己匯出，然後鎖定</h3>
+      <p>會計選好月份按下載，就會拿到當月的 Excel。作廢的不會出現在裡面。</p>
+      <p>匯完之後會計會<strong>鎖定那個月</strong>。鎖定後那個月就不能再新增或修改了，畫面會直接告訴你。<strong>所以當月的帳要當月記完。</strong></p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">5</span>這幾種狀況找主管</h2>
+  <ul class="plain">
+    <li><b>科目裡沒有你要的分類</b>——不要硬塞到「雜支」，講一聲就可以加。</li>
+    <li><b>登入不了、或一直轉圈</b>。</li>
+    <li><b>要改的是已經鎖定的月份</b>。</li>
+    <li><b>同一筆不小心記了兩次</b>——自己作廢掉其中一筆就行，但記得說一聲。</li>
+  </ul>
+</section>
+
+<section>
+  <div class="note">
+    <p><b>只記現金。</b>刷卡、LINE Pay、街口、外送平台的錢都不要記進來——那些走另外的系統，記進來會重複算。</p>
+    <p><b>收據還是要留著。</b>線上記一筆不代表紙本可以丟，實體收據照舊交給會計。</p>
+  </div>
+</section>
+
+<footer>
+  畫面示範用的是假資料，金額與廠商都不是真的帳。<br>
+  有問題直接問主管，不要自己在試算表上改。
+</footer>
+
+</div>

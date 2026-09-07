@@ -3,3 +3,6 @@ private/
 
 .DS_Store
 node_modules/
+
+# 圖解的截圖產物（跑 e2e/guide/shoot.py 可重新產生）
+e2e/guide/s*.png
