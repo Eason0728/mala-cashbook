@@ -9,7 +9,7 @@
  *
  * 改版時把 VERSION 加一，舊快取會在啟用時全部清掉。
  */
-var VERSION = 'cashbook-v4';
+var VERSION = 'cashbook-v5';
 var ASSETS = [
   './', './index.html', './manifest.json',
   './css/base.css',

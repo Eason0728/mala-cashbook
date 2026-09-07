@@ -9,8 +9,9 @@
   var config = {
     MODE: 'cloud',
     STORE: '新竹光復',
-    // 部署 Apps Script 後把網址填進來（現在還沒部署，所以是空字串）
-    GAS_URL: '',
+    // 2026-09-08 部署（部署 ID AKfycbyelA64…，之後一律 redeploy 同一個 ID）。
+    // 這串網址等同鑰匙，所以通行碼是第二道門，且只存在試算表「設定」分頁。
+    GAS_URL: 'https://script.google.com/macros/s/AKfycbyelA64WCKft6WhiMZJjtl1egZV3jFUt0eT_MP2KfkkBA7ry9vJEuylIaqC7p_Bk3p56w/exec',
     // 通行碼本身只存試算表「設定」分頁，不寫進程式碼、不進 GitHub。
     REQUIRE_PASSCODE: true,
     // 送出逾時：超過就中止並提示重試，不自動重送（避免記成兩筆）

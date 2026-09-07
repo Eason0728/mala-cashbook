@@ -7,7 +7,9 @@
  * 通行碼只寫在「設定」分頁，不寫在這支程式裡，也不進 GitHub。
  */
 
-var SHEET_ID = '';          // 部署前填：現金收支明細試算表的 ID
+// 容器繫結在試算表上（試算表 → 擴充功能 → Apps Script），所以直接拿當前試算表，
+// 不用手填 ID。萬一改成獨立專案，再把 ID 填進 SHEET_ID_FALLBACK。
+var SHEET_ID_FALLBACK = '';
 var SHEET_ROWS = '明細';
 var SHEET_SETTINGS = '設定';
 var SHEET_FREQUENT = '常用項目';
@@ -44,7 +46,12 @@ function doGet() {
 
 // ---------- 共用 ----------
 
-function ss() { return SpreadsheetApp.openById(SHEET_ID); }
+function ss() {
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) return active;
+  if (!SHEET_ID_FALLBACK) throw new Error('NO_SPREADSHEET');
+  return SpreadsheetApp.openById(SHEET_ID_FALLBACK);
+}
 function sheet(name) {
   var s = ss().getSheetByName(name);
   if (!s) throw new Error('SHEET_MISSING_' + name);
