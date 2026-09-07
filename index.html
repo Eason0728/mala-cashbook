@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>現金收支登記｜麻的小辛辣</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="現金帳">
+<link rel="stylesheet" href="css/base.css">
+</head>
+<body>
+
+<div class="mode-banner" id="mode-banner" hidden>本機測試模式：資料存在這支手機／這台電腦，不會進真的帳本</div>
+
+<header class="app-header" id="app-header" hidden>
+  <img class="brand-logo" src="assets/logo-mark.png" alt="麻的小辛辣" width="512" height="307">
+  <span class="brand-text">
+    <h1>現金收支登記</h1>
+    <span class="store" id="header-store">新竹光復</span>
+  </span>
+</header>
+
+<nav class="tabs" id="tabs" hidden>
+  <button type="button" data-view="entry" aria-selected="true">登記</button>
+  <button type="button" data-view="list" aria-selected="false">本月清單</button>
+  <button type="button" data-view="export" aria-selected="false">匯出</button>
+</nav>
+
+<main>
+
+  <!-- 登入 -->
+  <section class="view" id="view-login">
+    <div class="login-wrap">
+      <img class="login-logo" src="assets/logo-full.png" alt="麻的小辛辣" width="581" height="600">
+      <h1>現金收支登記</h1>
+      <p>麻的小辛辣・新竹光復店</p>
+      <div class="msg error" id="login-error" hidden></div>
+      <label class="field">
+        <input type="password" id="passcode" inputmode="numeric" autocomplete="off" placeholder="通行碼">
+      </label>
+      <button class="btn" id="btn-login" data-busy="驗證中">進入</button>
+    </div>
+  </section>
+
+  <!-- 登記 -->
+  <section class="view" id="view-entry" hidden>
+    <div class="summary" id="summary-entry"></div>
+
+    <div class="card">
+      <div class="msg ok" id="entry-ok" hidden></div>
+      <div class="msg error" id="entry-error" hidden></div>
+      <div class="msg info" id="entry-locked" hidden></div>
+
+      <div class="seg" id="kind-seg">
+        <button type="button" data-kind="支出" aria-pressed="true">支出</button>
+        <button type="button" class="income" data-kind="收入" aria-pressed="false">收入</button>
+      </div>
+
+      <label class="field">
+        <span>日期</span>
+        <input type="date" id="f-date">
+      </label>
+
+      <label class="field">
+        <span>項目名稱</span>
+        <input type="text" id="f-name" placeholder="例：廠商名—品項" autocomplete="off">
+      </label>
+      <div class="chips" id="name-chips"></div>
+
+      <label class="field">
+        <span>科目</span>
+        <select id="f-subject"></select>
+      </label>
+      <div class="hint" id="subject-hint"></div>
+
+      <label class="field">
+        <span>金額</span>
+        <input type="number" id="f-amount" inputmode="numeric" min="1" step="1" placeholder="0">
+      </label>
+
+      <label class="field">
+        <span>單據</span>
+      </label>
+      <div class="invoice-toggle" id="invoice-toggle">
+        <button type="button" data-inv="0" aria-pressed="true">收據／無發票</button>
+        <button type="button" data-inv="1" aria-pressed="false">統一發票</button>
+      </div>
+
+      <div class="tax-preview" id="tax-preview"></div>
+
+      <label class="field">
+        <span>收據照片</span>
+        <input type="file" id="f-photo" accept="image/*" capture="environment">
+      </label>
+
+      <button class="btn" id="btn-submit" data-busy="送出中">送出這一筆</button>
+      <div style="height:10px"></div>
+      <button class="btn btn-secondary" id="btn-clear" type="button">清空重填</button>
+    </div>
+  </section>
+
+  <!-- 當月清單 -->
+  <section class="view" id="view-list" hidden>
+    <div class="summary" id="summary-list"></div>
+    <div class="card">
+      <label class="field">
+        <span>月份</span>
+        <input type="month" id="list-month">
+      </label>
+      <div class="msg info" id="list-locked" hidden></div>
+    </div>
+    <ul class="entry-list" id="entry-list"></ul>
+    <div class="empty" id="list-empty" hidden>這個月還沒有任何紀錄</div>
+  </section>
+
+  <!-- 匯出（會計） -->
+  <section class="view" id="view-export" hidden>
+    <div class="card">
+      <h2>月底匯出</h2>
+      <label class="field">
+        <span>要匯出哪個月</span>
+        <input type="month" id="export-month">
+      </label>
+      <div class="msg info" id="export-info"></div>
+      <button class="btn" id="btn-export" data-busy="產生中">下載 Excel</button>
+    </div>
+
+    <div class="card">
+      <h2>月結鎖定</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 12px">
+        鎖定後這個月不能再新增、修改或作廢。帳進了就鎖，避免事後被改。
+      </p>
+      <div id="lock-state"></div>
+      <button class="btn btn-secondary" id="btn-lock" data-busy="處理中">鎖定這個月</button>
+    </div>
+  </section>
+
+</main>
+
+<script src="js/config.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/demo-data.js"></script>
+<script src="js/mock-data.js"></script>
+<script src="js/api.js"></script>
+<script src="js/busy.js"></script>
+<script src="js/memory.js"></script>
+<script src="js/export.js"></script>
+<script src="js/views/login.js"></script>
+<script src="js/views/entry.js"></script>
+<script src="js/views/list.js"></script>
+<script src="js/views/export.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

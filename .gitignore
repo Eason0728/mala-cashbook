@@ -1,0 +1,5 @@
+# 真實帳目不進版控——這個 repo 是 public（GitHub Pages 免費方案只支援 public）
+private/
+
+.DS_Store
+node_modules/

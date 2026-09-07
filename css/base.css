@@ -1,0 +1,276 @@
+/* 麻的小辛辣 現金收支登記：設計語彙
+ * 色票沿用打卡／薪資系統，店長同一天會用到好幾個系統，視覺一致才不會像兩家公司做的。
+ * 原則：底色溫暖、卡片乾淨、紅色只留給品牌與關鍵動作。帳本類畫面數字對齊優先於裝飾。
+ */
+:root {
+  --brand-red: #E8380D;
+  --brand-red-dark: #c22f0b;
+  --brand-red-soft: #fdeee9;
+  --brand-orange: #F08300;
+  --brand-gold: #FABE00;
+  --ink: #231815;
+  --muted: #8a817a;
+  --line: #e6e0da;
+  --bg: #faf8f6;
+  --card: #ffffff;
+  --ok: #2f7d4f;
+  --ok-soft: #eaf5ee;
+  --bad: #c0392b;
+  --bad-soft: #fbeceb;
+  --radius: 12px;
+  --gap: 16px;
+  --shadow: 0 1px 2px rgba(35, 24, 21, .06), 0 4px 16px rgba(35, 24, 21, .05);
+  --font: -apple-system, BlinkMacSystemFont, "PingFang TC", "Heiti TC",
+          "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+/* 必須擺在所有元件樣式之前：底下的 .tabs/.app-header/.summary 都設了 display:grid|flex，
+   那會蓋掉 hidden 屬性預設的 display:none，讓該藏的東西藏不住。 */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* 數字一律等寬對齊——這是帳本，欄位對不齊會讓人不信任 */
+.num, input[type="number"], .amount, .sum-value, table td.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ---------- 版面骨架 ---------- */
+/* 頁首刻意用白底而不是紅底：品牌 logo 上的字是黑的，壓在紅底上看不清楚。
+   白底也更接近他們原本的紙本表單，紅色留給金額、按鈕與選中的分頁。 */
+.app-header {
+  background: var(--card);
+  border-bottom: 2px solid var(--brand-red);
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-logo { height: 30px; width: auto; flex: none; }
+.brand-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.app-header h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+.app-header .store { font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+main { padding: var(--gap); padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px)); max-width: 720px; margin: 0 auto; }
+.view[hidden] { display: none !important; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--gap);
+  box-shadow: var(--shadow);
+  margin-bottom: var(--gap);
+}
+.card h2 { font-size: 15px; margin: 0 0 12px; font-weight: 700; }
+
+/* ---------- 本月三個數字（常駐在最上面） ---------- */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: var(--gap);
+}
+.summary div { background: var(--card); padding: 12px 8px; text-align: center; }
+.summary .sum-label { font-size: 12px; color: var(--muted); display: block; }
+.summary .sum-value { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.summary .expense .sum-value { color: var(--brand-red); }
+.summary .income .sum-value { color: var(--ok); }
+.summary .net .sum-value.minus { color: var(--brand-red); }
+
+/* ---------- 表單 ---------- */
+label.field { display: block; margin-bottom: 14px; }
+label.field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+
+input[type="text"], input[type="date"], input[type="number"],
+input[type="password"], select, textarea {
+  width: 100%;
+  padding: 13px 12px;
+  font-size: 16px; /* 16px 以下 iOS 會自動放大整頁 */
+  font-family: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  appearance: none;
+}
+/* appearance:none 會把系統的下拉箭頭一起拿掉，看起來就跟文字框一樣，
+   店長不會知道那裡能點——自己畫一個回去 */
+select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%238a817a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 38px;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--brand-red);
+  box-shadow: 0 0 0 3px var(--brand-red-soft);
+}
+input[inputmode="numeric"] { font-size: 22px; font-weight: 700; }
+
+/* 支出／收入切換 */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.seg button {
+  padding: 12px; font-size: 15px; font-weight: 700; font-family: inherit;
+  background: #fff; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--brand-red); border-color: var(--brand-red); color: #fff; }
+.seg button.income[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); }
+
+/* 有無發票 */
+.invoice-toggle { display: flex; gap: 8px; }
+.invoice-toggle button {
+  flex: 1; padding: 11px; font-size: 14px; font-weight: 600; font-family: inherit;
+  background: #fff; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+.invoice-toggle button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+/* 常用項目快選 */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chips:empty { display: none; }
+.chip {
+  padding: 7px 11px; font-size: 13px; font-family: inherit;
+  background: var(--brand-red-soft); color: var(--brand-red-dark);
+  border: 1px solid transparent; border-radius: 999px; cursor: pointer;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chip:active { background: var(--brand-red); color: #fff; }
+
+/* 科目自動帶入的提示：綠色＝從記憶帶出來的，橘色＝新項目沒有紀錄 */
+.hint { font-size: 12.5px; margin: -8px 0 14px; line-height: 1.5; }
+.hint:empty { display: none; }
+.hint.ok { color: var(--ok); }
+.hint.warn { color: var(--brand-orange); font-weight: 600; }
+
+/* 稅額即時預覽 */
+.tax-preview {
+  font-size: 13px; color: var(--muted);
+  background: var(--bg); border-radius: 8px; padding: 9px 12px; margin-bottom: 14px;
+}
+.tax-preview b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ---------- 按鈕 ---------- */
+.btn {
+  display: block; width: 100%;
+  padding: 15px; font-size: 16px; font-weight: 700; font-family: inherit;
+  color: #fff; background: var(--brand-red);
+  border: none; border-radius: 10px; cursor: pointer;
+  transition: background .15s;
+}
+.btn:active { background: var(--brand-red-dark); }
+.btn:disabled { cursor: default; }
+.btn.is-busy { background: var(--muted); }
+.btn.is-done { background: var(--ok); }
+.btn-secondary { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+.btn-secondary:active { background: var(--bg); }
+.btn-secondary.is-busy, .btn-secondary.is-done { color: #fff; }
+.btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn-sm { padding: 9px 14px; font-size: 14px; width: auto; }
+
+/* ---------- 清單 ----------
+   一整張卡片內用分隔線分列，而不是一筆一張卡片：同一個畫面從看到 3 筆變成 6～7 筆，
+   月底核對時少捲一半。代價是「修改／作廢」要點該列才展開。 */
+.entry-list {
+  list-style: none; margin: 0; padding: 0;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.entry {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline;
+  cursor: pointer;
+}
+.entry:last-child { border-bottom: none; }
+.entry.open { background: var(--bg); }
+.entry .date { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.entry .body { min-width: 0; }
+/* 名稱與科目各自一行——擠在同一行會變成「富元裝百葉窗×2修繕維護」這種讀不懂的字串 */
+.entry .name { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry .meta { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.entry .amount { font-weight: 700; font-size: 17px; white-space: nowrap; }
+.entry.expense .amount { color: var(--brand-red); }
+.entry.income .amount { color: var(--ok); }
+.entry .actions { grid-column: 1 / -1; display: flex; gap: 8px; padding-top: 10px; margin-top: 4px; border-top: 1px dashed var(--line); }
+.entry .actions[hidden] { display: none; }
+/* 提示這一列點得開：收合時右側金額後面留一個小箭頭 */
+.entry .chev { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.entry.open .chev { transform: rotate(180deg); display: inline-block; }
+
+/* 作廢：留痕不刪，灰掉並劃線 */
+.entry.voided { background: var(--bg); opacity: .72; cursor: default; }
+.entry.voided .name, .entry.voided .amount { text-decoration: line-through; }
+.entry.voided .amount { color: var(--muted) !important; }
+.badge-void {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  background: var(--bad-soft); color: var(--bad);
+  padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: 1px;
+}
+.badge-lock {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  background: var(--ink); color: #fff; padding: 2px 8px; border-radius: 999px;
+}
+
+/* ---------- 分頁列（在頁首正下方，跟著捲動固定在頂端） ---------- */
+.tabs {
+  position: sticky; top: 0; z-index: 11;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 3px rgba(35, 24, 21, .04);
+}
+.tabs button {
+  padding: 13px 4px 11px; font-size: 14px; font-family: inherit; font-weight: 600;
+  background: none; border: none; border-bottom: 3px solid transparent;
+  color: var(--muted); cursor: pointer;
+  margin-bottom: -1px; /* 蓋住容器的 1px 底線，選中的紅線才不會被切成兩層 */
+}
+.tabs button[aria-selected="true"] { color: var(--brand-red); border-bottom-color: var(--brand-red); }
+
+/* ---------- 提示訊息 ---------- */
+.msg { font-size: 14px; padding: 11px 13px; border-radius: 10px; margin-bottom: 12px; }
+.msg[hidden] { display: none; }
+.msg.error { background: var(--bad-soft); color: var(--bad); }
+.msg.ok { background: var(--ok-soft); color: var(--ok); }
+.msg.info { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+
+.empty { text-align: center; color: var(--muted); font-size: 14px; padding: 36px 16px; }
+
+/* ---------- 登入 ---------- */
+.login-wrap { max-width: 340px; margin: 12vh auto 0; text-align: center; }
+.login-wrap .login-logo { height: 96px; width: auto; margin-bottom: 14px; }
+.login-wrap h1 { font-size: 19px; margin: 0 0 4px; }
+.login-wrap p { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+.login-wrap input { text-align: center; letter-spacing: .3em; font-size: 20px; }
+
+/* 本機測試模式的橫幅：避免把測試資料當成真帳 */
+.mode-banner {
+  background: var(--brand-gold); color: var(--ink);
+  font-size: 12px; font-weight: 700; text-align: center; padding: 5px 10px;
+}
+.mode-banner[hidden] { display: none; }
+
+@media (min-width: 640px) {
+  .entry { grid-template-columns: 90px 1fr auto; }
+}
