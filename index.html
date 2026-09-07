@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>現金收支登記｜麻的小辛辣</title>
+<!-- 連結預覽（LINE／訊息軟體）用的說明。少了這幾行，抓取器會自己去撈頁面裡第一段文字，
+     結果撈到示範模式的黃色橫幅，正式連結上顯示成「本機測試模式…」。2026-09-08 實際發生。 -->
+<meta name="description" content="門市當天的現金支出與收入，用手機登記；會計月底匯出 Excel。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="麻的小辛辣">
+<meta property="og:title" content="現金收支登記｜麻的小辛辣">
+<meta property="og:description" content="門市當天的現金支出與收入，用手機登記；會計月底匯出 Excel。">
+<meta property="og:url" content="https://eason0728.github.io/mala-cashbook/">
+<meta property="og:image" content="https://eason0728.github.io/mala-cashbook/icons/icon-512.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
@@ -16,7 +25,8 @@
 </head>
 <body>
 
-<div class="mode-banner" id="mode-banner" hidden>本機測試模式：資料存在這支手機／這台電腦，不會進真的帳本</div>
+<!-- 文字由 js/app.js 注入：留在 HTML 裡會被連結預覽的抓取器撈去當說明 -->
+<div class="mode-banner" id="mode-banner" hidden></div>
 
 <header class="app-header" id="app-header" hidden>
   <img class="brand-logo" src="assets/logo-mark.png" alt="麻的小辛辣" width="512" height="307">

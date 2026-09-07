@@ -83,7 +83,14 @@
   }
 
   function init() {
-    document.getElementById('mode-banner').hidden = (window.Config.MODE !== 'local');
+    var banner = document.getElementById('mode-banner');
+    if (window.Config.MODE === 'local') {
+      // 這句話刻意不寫在 HTML 裡：連結預覽的抓取器會把它當成整個網站的說明
+      banner.textContent = '本機測試模式：資料存在這支手機／這台電腦，不會進真的帳本';
+      banner.hidden = false;
+    } else {
+      banner.hidden = true;
+    }
     window.Memory.load();
 
     Array.prototype.forEach.call(document.querySelectorAll('#tabs button'), function (b) {
