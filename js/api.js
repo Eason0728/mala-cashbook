@@ -137,7 +137,22 @@
     };
     if (ctrl) opt.signal = ctrl.signal;
     return fetch(window.Config.GAS_URL, opt)
-      .then(function (res) { return res.json(); })
+      /* 不要直接用 res.json()：它失敗時瀏覽器丟的訊息完全看不出原因，
+         Safari 更只會說「The string did not match the expected pattern」
+         （2026-09-09 店長手機登不進去，就是卡在這句話上查了很久）。
+         自己讀成文字再解析，失敗就把後端真正回的內容帶出來。 */
+      .then(function (res) {
+        return res.text().then(function (raw) {
+          try {
+            return JSON.parse(raw);
+          } catch (e) {
+            var bad = new Error('BAD_RESPONSE');
+            bad.status = res.status;
+            bad.detail = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+            throw bad;
+          }
+        });
+      })
       .then(function (data) {
         if (!data || !data.ok) throw new Error((data && data.error) || 'SERVER_ERROR');
         return data;

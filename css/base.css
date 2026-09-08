@@ -254,7 +254,9 @@ input[inputmode="numeric"] { font-size: 22px; font-weight: 700; }
 .tabs button[aria-selected="true"] { color: var(--brand-red); border-bottom-color: var(--brand-red); }
 
 /* ---------- 提示訊息 ---------- */
-.msg { font-size: 14px; padding: 11px 13px; border-radius: 10px; margin-bottom: 12px; }
+/* pre-line：診斷訊息會帶換行（後端回了什麼），沒有它會擠成一團看不出重點 */
+.msg { font-size: 14px; padding: 11px 13px; border-radius: 10px; margin-bottom: 12px;
+       white-space: pre-line; word-break: break-word; }
 .msg[hidden] { display: none; }
 .msg.error { background: var(--bad-soft); color: var(--bad); }
 .msg.ok { background: var(--ok-soft); color: var(--ok); }

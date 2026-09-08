@@ -19,12 +19,19 @@
     BAD_INPUT: '有欄位沒填或金額不對',
     TIMEOUT: '網路太慢，這次沒送出去，請再按一次',
     SERVER_ERROR: '後端出錯了，請再試一次',
-    PHOTO_FAIL: '帳已經記下了，但照片沒上傳成功'
+    PHOTO_FAIL: '帳已經記下了，但照片沒上傳成功',
+    BAD_RESPONSE: '後端沒有回正常資料（通常是授權掉了或後端出錯），請告知資訊部'
   };
 
   function messageOf(err) {
     var code = (err && err.message) || 'SERVER_ERROR';
-    return MESSAGES[code] || ('出錯了：' + code);
+    var text = MESSAGES[code] || ('出錯了：' + code);
+    // 後端回了非預期內容時，把它帶出來——不然畫面上只剩一句看不懂的瀏覽器錯誤，
+    // 遠端支援時等於什麼線索都沒有（2026-09-09 的教訓）
+    if (err && err.detail) {
+      text += '\n\n[診斷] HTTP ' + (err.status || '?') + '　後端回的是：' + err.detail;
+    }
+    return text;
   }
 
   function run(btn, task, opts) {
