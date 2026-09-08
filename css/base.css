@@ -30,6 +30,11 @@
    那會蓋掉 hidden 屬性預設的 display:none，讓該藏的東西藏不住。 */
 [hidden] { display: none !important; }
 
+/* 頁尾版本號：顯示這台裝置實際在跑的版本，過期時用品牌色提醒 */
+.app-version { text-align: center; font-size: 11px; color: var(--muted);
+               padding: 14px 12px 22px; line-height: 1.6; }
+.app-version .stale { color: var(--brand-red); font-weight: 600; }
+
 html, body {
   margin: 0;
   padding: 0;

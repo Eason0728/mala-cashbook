@@ -82,6 +82,37 @@
     });
   }
 
+  /* 版本號。刻意顯示**快取裡的版本**（＝這台裝置實際在跑的那份程式），
+     不是伺服器上的最新版——會問「你手上是哪一版」的場合，要的都是前者。
+     兩者不一致就明講該怎麼辦，不要讓人以為自己已經是最新的。 */
+  function showVersion() {
+    var box = document.getElementById('app-version');
+    if (!box) return;
+    var installed = null, latest = null;
+
+    var readInstalled = ('caches' in window)
+      ? caches.keys().then(function (keys) {
+          installed = keys.filter(function (k) { return k.indexOf('cashbook-') === 0; })[0] || null;
+        }).catch(function () {})
+      : Promise.resolve();
+
+    var readLatest = fetch('sw.js', { cache: 'no-store' }).then(function (r) { return r.text(); })
+      .then(function (t) { latest = (t.match(/VERSION = '([^']+)'/) || [])[1] || null; })
+      .catch(function () {});
+
+    Promise.all([readInstalled, readLatest]).then(function () {
+      var shown = installed || latest;
+      if (!shown) return;                       // file:// 直開之類，沒版本可講就不佔版面
+      box.textContent = shown;
+      if (installed && latest && installed !== latest) {
+        var tip = document.createElement('div');
+        tip.className = 'stale';
+        tip.textContent = '有新版 ' + latest + '，請把這個畫面完全關掉再重開';
+        box.appendChild(tip);
+      }
+    });
+  }
+
   function init() {
     var banner = document.getElementById('mode-banner');
     if (window.Config.MODE === 'local') {
@@ -101,6 +132,8 @@
     window.ViewList.init();
     window.ViewExport.init();
     show('login');
+
+    showVersion();
 
     // 註冊 Service Worker：加到手機桌面後開得快，網路不穩時畫面也還打得開。
     // file:// 直開時沒有 SW，不影響任何功能，所以失敗就安靜略過。

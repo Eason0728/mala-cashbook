@@ -124,6 +124,7 @@ def main():
             run_export(page, data)
             run_lock(page, data)
             run_photo_warning(page)
+            run_version_badge(page)
 
             report(page)
             browser.close()
@@ -368,6 +369,16 @@ def run_list(page, data):
           page.evaluate("() => !document.getElementById('list-empty').hidden"))
     page.fill('#list-month', data['month'])
     page.wait_for_timeout(600)
+
+
+def run_version_badge(page):
+    """頁尾要看得到這台裝置在跑哪一版。
+
+    2026-09-09 加的：照片那次除錯有一半時間耗在「不知道對方手上是哪一版」，
+    顯示的是快取裡的版本（實際在跑的），不是伺服器上的最新版。
+    """
+    v = text(page, '#app-version')
+    check('頁尾有顯示版本號', bool(re.match(r'^cashbook-v\d+', v or '')), v or '(空的)')
 
 
 def run_photo_warning(page):
