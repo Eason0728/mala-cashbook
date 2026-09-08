@@ -246,11 +246,31 @@ function bumpFrequent(subject, name) {
   sh.appendRow([subject, name, 1, now]);
 }
 
+/* 收據照片要存在哪：設定分頁的「照片資料夾ID」。
+   那格空著就自己建一個並把 ID 寫回去——2026-09-08 上線時那格一直是空的，
+   於是照片天天拍、天天丟，直到 09-09 對帳才發現。與其等人去填，不如讓它自己補上。
+   一定要由這支腳本建，資料夾才會屬於部署帳號，寫入權限不會出錯。 */
+function photoFolder() {
+  var id = settings()['照片資料夾ID'];
+  if (id) return DriveApp.getFolderById(id);
+
+  var folder = DriveApp.createFolder('麻的小辛辣｜現金收支收據照片');
+  var cfg = sheet(SHEET_SETTINGS);
+  var values = cfg.getDataRange().getValues();
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][0]).trim() === '照片資料夾ID') {
+      cfg.getRange(i + 1, 2).setValue(folder.getId());
+      return folder;
+    }
+  }
+  // 設定分頁連那一列都沒有（舊版試算表）就補一列，不然下次又白建一個
+  cfg.appendRow(['照片資料夾ID', folder.getId()]);
+  return folder;
+}
+
 function savePhoto(base64, id) {
-  var folderId = settings()['照片資料夾ID'];
-  if (!folderId) throw new Error('PHOTO_FAIL');
   var blob = Utilities.newBlob(Utilities.base64Decode(base64), 'image/jpeg', id + '.jpg');
-  return DriveApp.getFolderById(folderId).createFile(blob).getUrl();
+  return photoFolder().createFile(blob).getUrl();
 }
 
 /* 匯出真正的 .xlsx：把當月資料寫進一份臨時試算表，用 Google 原生匯出成 xlsx，

@@ -123,6 +123,7 @@ def main():
             run_list(page, data)
             run_export(page, data)
             run_lock(page, data)
+            run_photo_warning(page)
 
             report(page)
             browser.close()
@@ -367,6 +368,32 @@ def run_list(page, data):
           page.evaluate("() => !document.getElementById('list-empty').hidden"))
     page.fill('#list-month', data['month'])
     page.wait_for_timeout(600)
+
+
+def run_photo_warning(page):
+    """照片存不進去時，畫面一定要講出來。
+
+    這條線只有 cloud 會走（local 模式不實際上傳照片），跟 2026-09-08 匯出踩到的
+    是同一種盲區：後端會回 warning、文案也寫好了，但前端漏接，於是照片天天丟、
+    店長到會計全程無聲。這裡把 warning 灌進回應驗 UI，確保它不會再默默壞掉。
+    """
+    click(page, '#tabs [data-view="entry"]', '回登記畫面驗照片警告')
+    page.wait_for_selector('#view-entry:not([hidden])')
+    page.evaluate("""() => {
+        window.__origCreate = window.Api.create;
+        window.Api.create = (pass, p) =>
+          window.__origCreate(pass, p).then(res => Object.assign({}, res, { warning: 'PHOTO_FAIL' }));
+    }""")
+    page.fill('#f-name', '照片失敗測試')
+    page.fill('#f-amount', '100')
+    click(page, '#btn-submit', '送出一筆（模擬照片存不進去）')
+    page.wait_for_timeout(600)
+    warn = text(page, '#entry-error')
+    check('照片存不進去時畫面有講出來', '照片沒有存成功' in warn, warn or '(沒有任何訊息)')
+    check('照片失敗時帳仍然記成功（訊息含收據編號）', '收據編號' in warn, warn)
+    check('照片失敗時不會同時跳綠色的成功訊息',
+          page.evaluate("() => document.getElementById('entry-ok').hidden"))
+    page.evaluate("() => { window.Api.create = window.__origCreate; }")
 
 
 def run_export(page, data):

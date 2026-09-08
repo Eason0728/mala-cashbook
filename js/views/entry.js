@@ -155,9 +155,16 @@
         else window.Memory.remember(payload.subject, payload.name);
         window.App.renderSummaries();
         renderChips();
-        msg('entry-ok', '已記錄：' + payload.subject + '　' + payload.name + '　$' +
-                        payload.amount.toLocaleString('en-US') +
-                        '（收據編號 ' + res.row.seq + '）', true);
+        var done = '已記錄：' + payload.subject + '　' + payload.name + '　$' +
+                   payload.amount.toLocaleString('en-US') +
+                   '（收據編號 ' + res.row.seq + '）';
+        /* 照片失敗不會害這筆帳記不成（後端刻意的），但一定要講出來——
+           不講的話店長以為拍了就有存，月底調收據才發現一張都沒有。 */
+        if (res.warning === 'PHOTO_FAIL') {
+          msg('entry-error', '⚠️ ' + done + '　但這張收據照片沒有存成功，請留著紙本收據。', true);
+        } else {
+          msg('entry-ok', done, true);
+        }
         clearForm(true); // 日期留著，連續打同一天的收據不用重選
       });
     }, {
