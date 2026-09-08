@@ -380,6 +380,20 @@ def run_version_badge(page):
     v = text(page, '#app-version')
     check('頁尾有顯示版本號', bool(re.match(r'^cashbook-v\d+', v or '')), v or '(空的)')
 
+    # 偽造「舊版快取還沒被清掉」的情境：這正是它要解決的場合，
+    # 顯示的必須是舊的那一版（使用者實際在跑的），並且叫他關掉重開。
+    page.evaluate("() => caches.open('cashbook-v1')")
+    page.reload(wait_until='networkidle')
+    page.wait_for_timeout(1200)
+    # 版本號是元素的第一個文字節點，提示是後面追加的子元素，分開取才驗得準
+    first = page.evaluate(
+        "() => { const e = document.getElementById('app-version');"
+        "  return e && e.firstChild ? e.firstChild.textContent.trim() : ''; }")
+    v2 = text(page, '#app-version') or ''
+    check('快取裡還有舊版時，顯示的是舊版那個', first == 'cashbook-v1', first or '(空的)')
+    check('而且會叫使用者關掉重開', '完全關掉再重開' in v2, v2)
+    page.evaluate("() => caches.delete('cashbook-v1')")
+
 
 def run_photo_warning(page):
     """照片存不進去時，畫面一定要講出來。

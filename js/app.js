@@ -92,7 +92,14 @@
 
     var readInstalled = ('caches' in window)
       ? caches.keys().then(function (keys) {
-          installed = keys.filter(function (k) { return k.indexOf('cashbook-') === 0; })[0] || null;
+          /* 取**版本號最小**的那個，不是陣列第一個：新版 SW 裝好之後會先在旁邊等，
+             舊快取還在、頁面也還是由舊 SW 控制，此時「實際在跑的」是舊的那份。
+             caches.keys() 的順序不保證，靠它排就會在該提醒的時候剛好不提醒。 */
+          installed = keys.filter(function (k) { return k.indexOf('cashbook-') === 0; })
+            .sort(function (a, b) {
+              return (parseInt(a.replace(/\D/g, ''), 10) || 0) -
+                     (parseInt(b.replace(/\D/g, ''), 10) || 0);
+            })[0] || null;
         }).catch(function () {})
       : Promise.resolve();
 
