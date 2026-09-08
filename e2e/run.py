@@ -33,16 +33,18 @@ BASE = 'http://localhost:%d' % PORT
 
 RESULTS = []
 CM = ClickMap()
+ENGINE = ''      # 目前這輪是哪個引擎，失敗摘要要看得出來
 
 
 def check(name, ok, detail=''):
-    RESULTS.append((name, bool(ok), str(detail)))
+    RESULTS.append(((('[%s] ' % ENGINE) if ENGINE else '') + name, bool(ok), str(detail)))
     print(('✅ ' if ok else '❌ ') + name + (('　' + str(detail)) if (detail and not ok) else ''))
 
 
 def shot(page, name):
     os.makedirs(SHOTS, exist_ok=True)
-    page.screenshot(path=os.path.join(SHOTS, name + '.png'), full_page=True)
+    prefix = (ENGINE.split('／')[0].lower() + '-') if ENGINE else ''
+    page.screenshot(path=os.path.join(SHOTS, prefix + name + '.png'), full_page=True)
 
 
 def click(page, selector, verified):
@@ -92,9 +94,57 @@ def main():
     time.sleep(1.2)
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch()
-            ctx = browser.new_context(viewport={'width': 420, 'height': 900})
+            for label, engine in targets():
+                print('\n' + '━' * 72)
+                print('引擎：%s' % label)
+                print('━' * 72)
+                run_suite(pw, engine, label, data, exp)
+    finally:
+        srv.terminate()
 
+    failed = [r for r in RESULTS if not r[1]]
+    print('\n' + '=' * 72)
+    print('共 %d 項檢查，通過 %d，失敗 %d' % (len(RESULTS), len(RESULTS) - len(failed), len(failed)))
+    if failed:
+        print('\n失敗項目：')
+        for n, _, d in failed:
+            print('  ❌ %s　%s' % (n, d))
+        print('\n重現這組資料：E2E_SEED=%d /usr/bin/python3 e2e/run.py' % data['seed'])
+    print('=' * 72)
+    return 1 if failed else 0
+
+
+def targets():
+    """跑哪些引擎。
+
+    店長與 Eason 用 iPhone，iPhone 上所有瀏覽器都是 WebKit；會計用電腦匯出。
+    只測 Chromium 等於只證明了會計那半邊——2026-09-09 店長登不進去，畫面上那句
+    「The string did not match the expected pattern.」就是 WebKit 專屬的訊息，
+    在 Chromium 上永遠看不到。所以預設兩個引擎都跑。
+
+    E2E_BROWSER=chromium|webkit 可以只跑一個（除錯時省時間）。
+    """
+    want = os.environ.get('E2E_BROWSER', 'both')
+    all_targets = [('Chromium／桌面', 'chromium'), ('WebKit／iPhone', 'webkit')]
+    if want in ('chromium', 'webkit'):
+        return [t for t in all_targets if t[1] == want]
+    return all_targets
+
+
+def run_suite(pw, engine, label, data, exp):
+    """一個引擎跑完整套檢查。每輪重開瀏覽器與按鈕覆蓋率統計。"""
+    global CM, ENGINE
+    CM = ClickMap()
+    ENGINE = label
+
+    browser = getattr(pw, engine).launch()
+    if engine == 'webkit':
+        # 真的用 iPhone 的尺寸與觸控行為跑，不只是換引擎
+        ctx = browser.new_context(**pw.devices['iPhone 13'])
+    else:
+        ctx = browser.new_context(viewport={'width': 420, 'height': 900})
+
+    try:
             # 注入隨機資料，並把「今天」挪進資料月份（日期欄預設今天，月份要對得上）
             fake_day = '%s-15' % data['month']
             ctx.add_init_script("""
@@ -127,20 +177,9 @@ def main():
             run_version_badge(page)
 
             report(page)
-            browser.close()
     finally:
-        srv.terminate()
-
-    failed = [r for r in RESULTS if not r[1]]
-    print('\n' + '=' * 72)
-    print('共 %d 項檢查，通過 %d，失敗 %d' % (len(RESULTS), len(RESULTS) - len(failed), len(failed)))
-    if failed:
-        print('\n失敗項目：')
-        for n, _, d in failed:
-            print('  ❌ %s　%s' % (n, d))
-        print('\n重現這組資料：E2E_SEED=%d python3 e2e/run.py' % data['seed'])
-    print('=' * 72)
-    return 1 if failed else 0
+        browser.close()
+        ENGINE = ''
 
 
 # ---------- 各段流程 ----------
