@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import time
+import zipfile
 
 from playwright.sync_api import sync_playwright
 
@@ -402,21 +403,35 @@ def run_export(page, data):
     check('匯出收入合計 %d 正確' % s['income'], matrix[-2][7] == s['income'], matrix[-2][7])
     check('匯出淨額 %d 正確' % s['net'], matrix[-1][7] == s['net'], matrix[-1][7])
 
-    # 真的按下載，驗檔案內容
+    # 真的按下載，驗檔案內容。
+    # 2026-09-09 起 local 與 cloud 都由瀏覽器就地產 xlsx，所以這段驗的是**正式格式**，
+    # 不再是舊版那個只有測試會走的 CSV 分支——匯出這條路徑到此才真正被涵蓋。
     with page.expect_download(timeout=15000) as dl:
         click(page, '#btn-export', '下載檔案')
     download = dl.value
-    path = os.path.join(SHOTS, 'export.csv')
     os.makedirs(SHOTS, exist_ok=True)
+    path = os.path.join(SHOTS, 'export.xlsx')
     download.save_as(path)
-    with open(path, encoding='utf-8-sig') as f:
-        content = f.read()
     check('下載檔名含店別與月份', data['month'] in download.suggested_filename,
           download.suggested_filename)
-    check('下載內容含標題列', '店別,日期,收支別' in content, content[:60])
-    check('下載內容筆數與畫面一致',
-          len([l for l in content.strip().split('\n') if l.strip()]) == len(matrix) - 1,
-          '檔案 %d 行' % len(content.strip().split('\n')))
+    check('下載的是 .xlsx', download.suggested_filename.endswith('.xlsx'),
+          download.suggested_filename)
+
+    # 不裝 openpyxl：xlsx 本來就是一包 XML，用標準庫拆開看就夠了
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        check('xlsx 結構完整（打得開、有工作表）',
+              'xl/worksheets/sheet1.xml' in names, names[:6])
+        sheet = z.read('xl/worksheets/sheet1.xml').decode('utf-8')
+        shared = (z.read('xl/sharedStrings.xml').decode('utf-8')
+                  if 'xl/sharedStrings.xml' in names else '')
+    text = sheet + shared
+    want_rows = len([r for r in matrix if r])   # 合計前那一列是空的，不會寫進檔案
+    check('xlsx 列數與畫面一致（%d 列）' % want_rows,
+          sheet.count('<row') == want_rows, '檔案 %d 列' % sheet.count('<row'))
+    check('xlsx 含標題列與三個合計',
+          all(k in text for k in ('店別', '支出合計', '收入合計', '淨額')), text[:80])
+    check('xlsx 的淨額數字正確（%d）' % s['net'], '>%d<' % s['net'] in sheet, s['net'])
     shot(page, '04-匯出')
 
 

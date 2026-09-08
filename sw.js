@@ -9,12 +9,13 @@
  *
  * 改版時把 VERSION 加一，舊快取會在啟用時全部清掉。
  */
-var VERSION = 'cashbook-v10';
+var VERSION = 'cashbook-v11';
 var ASSETS = [
   './', './index.html', './manifest.json',
   './css/base.css',
   './js/config.js', './js/calc.js', './js/demo-data.js', './js/mock-data.js',
   './js/api.js', './js/busy.js', './js/memory.js', './js/export.js', './js/app.js',
+  './js/vendor/xlsx.mini.min.js',
   './js/views/login.js', './js/views/entry.js', './js/views/list.js', './js/views/export.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-180.png',
   './assets/logo-mark.png', './assets/logo-full.png'

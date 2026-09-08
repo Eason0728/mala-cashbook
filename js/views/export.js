@@ -13,7 +13,7 @@
     var fmt = window.Config.MODE === 'local'
       ? '本機測試模式匯出的是 CSV（Excel 開得起來），正式版才是 .xlsx'
       : '檔名：現金收支_' + window.Config.STORE + '_' + month + '.xlsx'
-        + '<br><b>產生檔案要 20～40 秒</b>，按下去等秒數跑完就會下載，不要重複按。';
+        + '<br>檔案在這支手機／電腦上直接產生，按下去馬上下載。';
     el('export-info').innerHTML = s
       ? month + '　共 ' + s.count + ' 筆（作廢的不會匯出）<br>支出 ' + window.App.money(s.expense) +
         '　收入 ' + window.App.money(s.income) + '<br>' + fmt
@@ -36,11 +36,13 @@
       }).then(function () { renderInfo(); });
     }, {
       doneText: '已下載 ✓',
-      // 匯出逾時不是網路問題，是後端產檔太久，訊息要講對否則會一直重按
+      /* 產檔本身已經不連線了，所以逾時只可能發生在前面那趟「讀當月資料」。
+         訊息要講對，否則會計會以為是檔案產不出來。 */
       onError: function (msg, err) {
-        window.alert(err && err.message === 'TIMEOUT'
-          ? '產生檔案超過 90 秒還沒回應。\n\n這不是網路的問題，是後端產檔卡住了，請告知資訊部。'
-          : msg);
+        var code = err && err.message;
+        if (code === 'TIMEOUT') msg = '讀取當月資料時網路沒有回應，請確認連線後再按一次。';
+        if (code === 'XLSX_MISSING') msg = '匯出元件沒有載入成功，請把頁面完全關掉再重開一次。';
+        window.alert(msg);
       }
     }).catch(function () {});
   }

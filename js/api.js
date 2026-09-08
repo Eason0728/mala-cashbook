@@ -120,14 +120,12 @@
       saveDB(db);
       return Promise.resolve({ ok: true, lockedMonths: db.lockedMonths });
     },
-    // local 模式沒有後端可以產真 xlsx，匯出改走 js/export.js 的 CSV 分支
-    exportXlsx: function () { return fail('LOCAL_NO_XLSX'); },
     reset: function () { try { localStorage.removeItem(MOCK_KEY); } catch (e) {} return Promise.resolve({ ok: true }); }
   };
 
   // ---------- cloud（Apps Script） ----------
-  /* timeoutMs 不給就用 Config.TIMEOUT_MS。匯出要傳長的那份——
-     一顆按鈕一個門檻，別讓重的動作去遷就輕的動作。 */
+  /* timeoutMs 不給就用 Config.TIMEOUT_MS。目前沒有呼叫者傳它——匯出改成前端產檔後
+     就不需要了——但這個能力留著：一顆按鈕一個門檻，別讓重的動作去遷就輕的動作。 */
   function post(action, body, timeoutMs) {
     var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
     var limit = timeoutMs || window.Config.TIMEOUT_MS;
@@ -159,9 +157,6 @@
     voidRow: function (pass, id, reason) { return post('void', { pass: pass, id: id, reason: reason }); },
     lock: function (pass, month) { return post('lock', { pass: pass, month: month }); },
     unlock: function (pass, month) { return post('unlock', { pass: pass, month: month }); },
-    exportXlsx: function (pass, month) {
-      return post('export', { pass: pass, month: month }, window.Config.EXPORT_TIMEOUT_MS);
-    },
     reset: function () { return Promise.resolve({ ok: true }); }
   };
 
