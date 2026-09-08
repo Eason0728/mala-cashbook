@@ -12,7 +12,8 @@
     var s = isCurrent ? window.Calc.summarize(window.App.State.rows) : null;
     var fmt = window.Config.MODE === 'local'
       ? '本機測試模式匯出的是 CSV（Excel 開得起來），正式版才是 .xlsx'
-      : '檔名：現金收支_' + window.Config.STORE + '_' + month + '.xlsx';
+      : '檔名：現金收支_' + window.Config.STORE + '_' + month + '.xlsx'
+        + '<br><b>產生檔案要 20～40 秒</b>，按下去等秒數跑完就會下載，不要重複按。';
     el('export-info').innerHTML = s
       ? month + '　共 ' + s.count + ' 筆（作廢的不會匯出）<br>支出 ' + window.App.money(s.expense) +
         '　收入 ' + window.App.money(s.income) + '<br>' + fmt
@@ -33,7 +34,15 @@
         if (!window.Calc.summarize(rows).count) throw new Error('BAD_INPUT');
         return window.Exporter.run(window.App.State.pass, month, rows);
       }).then(function () { renderInfo(); });
-    }, { doneText: '已下載 ✓' }).catch(function () {});
+    }, {
+      doneText: '已下載 ✓',
+      // 匯出逾時不是網路問題，是後端產檔太久，訊息要講對否則會一直重按
+      onError: function (msg, err) {
+        window.alert(err && err.message === 'TIMEOUT'
+          ? '產生檔案超過 90 秒還沒回應。\n\n這不是網路的問題，是後端產檔卡住了，請告知資訊部。'
+          : msg);
+      }
+    }).catch(function () {});
   }
 
   function doLock(btn) {

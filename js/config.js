@@ -15,7 +15,11 @@
     // 通行碼本身只存試算表「設定」分頁，不寫進程式碼、不進 GitHub。
     REQUIRE_PASSCODE: true,
     // 送出逾時：超過就中止並提示重試，不自動重送（避免記成兩筆）
-    TIMEOUT_MS: 20000
+    TIMEOUT_MS: 20000,
+    /* 匯出另訂一份，因為它本質上就慢：後端要新建一份臨時試算表、寫值、
+     * 請 Google 轉檔成 xlsx、再 base64 回傳，常態 20～40 秒。
+     * 套上面那個 20 秒等於每次必逾時（2026-09-09 會計連按五次都失敗）。 */
+    EXPORT_TIMEOUT_MS: 90000
   };
   try {
     var m = (location.search.match(/[?&]mode=(local|cloud)\b/) || [])[1];
