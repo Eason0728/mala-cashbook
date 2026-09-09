@@ -463,6 +463,21 @@ def run_snapshot_boot(page):
     before_sum = text(page, '#summary-entry')
     before_n = len(rows_state(page))
 
+    # 舊後端（還沒 redeploy）不認得 month，回來的不會有 rows。這條退路正是
+    # 「前端先上、後端還沒上」那段時間實際跑的路，而它在正常流程裡永遠走不到，
+    # 所以這裡刻意把 rows 拿掉走一次——不然它就是下一個沒人測到的分支。
+    fallback = page.evaluate("""async () => {
+      const month = window.App.monthOf(window.App.todayISO());
+      const boot = await window.Api.bootstrap(window.App.State.pass, month);
+      delete boot.rows; delete boot.month;          // 假裝後端還是舊版
+      await window.App.afterLogin(boot);
+      return { rows: window.App.State.rows.length, month: window.App.State.month };
+    }""")
+    check('後端還是舊版時，會自己補打一趟 list 把明細帶回來',
+          fallback['rows'] == before_n, fallback)
+    check('後端還是舊版時月份仍然正確',
+          fallback['month'] == page.evaluate('() => window.__E2E_DATA.month'), fallback)
+
     page.add_init_script(SYNC_RECORDER)
     page.reload(wait_until='networkidle')
 
