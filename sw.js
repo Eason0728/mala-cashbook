@@ -9,7 +9,7 @@
  *
  * 改版時把 VERSION 加一，舊快取會在啟用時全部清掉。
  */
-var VERSION = 'cashbook-v16';
+var VERSION = 'cashbook-v17';
 var ASSETS = [
   './', './index.html', './manifest.json',
   './css/base.css',
@@ -22,7 +22,9 @@ var ASSETS = [
 ];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(ASSETS); })
+  // addAll 走的是預設快取模式，會把 HTTP 快取裡的舊檔裝進來；明講 reload 才拿得到新的
+  var reqs = ASSETS.map(function (u) { return new Request(u, { cache: 'reload' }); });
+  e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(reqs); })
                     .then(function () { return self.skipWaiting(); }));
 });
 
@@ -38,8 +40,16 @@ self.addEventListener('fetch', function (e) {
   // 後端一律不快取：看到過期的帳比看不到還糟
   if (e.request.method !== 'GET' || url.indexOf('script.google.com') >= 0) return;
 
+  /* 一定要自己指定 no-cache，不然「網路優先」是假的：
+     GitHub Pages 給靜態檔的是 max-age=600，瀏覽器的 HTTP 快取會在這十分鐘內
+     直接把舊檔交出來，fetch() 根本到不了網路。2026-09-10 v16 上線時實測到
+     頁尾已經顯示 v16（那是讀 SW 快取，是新的）、但頁面實際跑的 js/app.js 還是 v15，
+     正好是那個版本號要防的情況。no-cache 不是不快取，是每次都跟伺服器對一下，
+     沒改就回 304，成本很小。 */
+  var fresh = new Request(e.request.url, { cache: 'no-cache', credentials: 'same-origin' });
+
   e.respondWith(
-    fetch(e.request).then(function (res) {
+    fetch(fresh).then(function (res) {
       if (res && res.status === 200 && res.type === 'basic') {
         var copy = res.clone();
         caches.open(VERSION).then(function (c) { c.put(e.request, copy); });
