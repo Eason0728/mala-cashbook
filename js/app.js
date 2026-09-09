@@ -43,12 +43,18 @@
   /* 載入某個月的明細。登記畫面與清單畫面共用同一份 rows，
      所以送出一筆之後兩邊的合計會一起更新，不會出現兩個數字打架。 */
   function loadMonth(month) {
-    State.month = month;
     return window.Api.list(State.pass, month).then(function (res) {
-      State.rows = res.rows || [];
-      renderSummaries();
-      return State.rows;
+      return applyMonth(month, res.rows);
     });
+  }
+
+  /* 明細從哪來都走這裡：list 回來的、bootstrap 順便帶回來的、快照裡的。
+     同一條路才不會有「某個來源忘了更新合計」這種只在特定流程出現的 bug。 */
+  function applyMonth(month, rows) {
+    State.month = month;
+    State.rows = rows || [];
+    renderSummaries();
+    return State.rows;
   }
 
   function renderSummaries() {
@@ -64,6 +70,75 @@
       var el = document.getElementById(id);
       if (el) el.innerHTML = html;
     });
+    // 合計會動＝資料動過了（登入、登記、作廢、修改都會走到這），順手把快照更新掉
+    saveSnapshot();
+  }
+
+  /* ---------- 上次資料的快照 ----------
+   * 只為了一件事：下次打開時先把畫面畫出來，不用乾等後端那幾秒。
+   * 它永遠只是「上一次的樣子」，所以畫面上一定要講明白（syncBar），
+   * 而且真資料一回來就立刻蓋掉。帳本不能讓人分不出看到的是新是舊。 */
+  var SNAP_KEY = 'cashbook_snapshot_v1';
+
+  /* 刻意不分 local／cloud：只有 cloud 才走到的分支，本機測試給不了任何保證
+     （2026-09-09 匯出與拍照都是這樣漏掉的）。快照在 local 只是多存一份沒人用的資料，
+     換來的是 e2e 真的驗得到「用舊資料先開畫面」這條路。 */
+  function saveSnapshot() {
+    if (!State.month) return;
+    try {
+      localStorage.setItem(SNAP_KEY, JSON.stringify({
+        v: 1, store: window.Config.STORE, settings: State.settings,
+        frequent: State.frequent, lockedMonths: State.lockedMonths,
+        month: State.month, rows: State.rows
+      }));
+    } catch (e) { /* 無痕模式或空間滿了。純加速用途，存不了不影響任何功能 */ }
+  }
+
+  function readSnapshot() {
+    try {
+      var snap = JSON.parse(localStorage.getItem(SNAP_KEY) || 'null');
+      if (!snap || snap.v !== 1 || snap.store !== window.Config.STORE) return null;
+      // 跨月之後拿上個月的快照當本月畫面會誤導人，這種時候寧可讓他等後端
+      if (snap.month !== monthOf(todayISO())) return null;
+      return snap;
+    } catch (e) { return null; }
+  }
+
+  function clearSnapshot() { try { localStorage.removeItem(SNAP_KEY); } catch (e) {} }
+
+  /* 橫幅：畫面上的數字不是剛從後端拿的時候，一定要有這條在。
+     offline=true 用紅底，因為那時候記的帳是真的送不出去。 */
+  function syncBar(text, offline) {
+    var bar = document.getElementById('sync-bar');
+    if (!bar) return;
+    bar.textContent = text || '';
+    bar.hidden = !text;
+    bar.className = 'sync-bar' + (offline ? ' offline' : '');
+    document.body.classList.toggle('data-stale', !!text);
+  }
+
+  /* ViewEntry.init() 會綁事件，綁兩次「送出這一筆」就會送出兩筆。
+     用快照先開畫面、真資料回來再走一次 afterLogin，正好是會呼叫兩次的情境。 */
+  var entryReady = false;
+  function ensureEntry() {
+    if (entryReady) return;
+    window.ViewEntry.init();
+    entryReady = true;
+  }
+
+  /* 用快照把畫面先開起來。這時候還沒跟後端講過話，通行碼是上次驗過的。 */
+  function showSnapshot(snap) {
+    State.settings = snap.settings;
+    State.frequent = snap.frequent || [];
+    State.lockedMonths = snap.lockedMonths || [];
+    window.Memory.set(State.frequent);
+    document.getElementById('header-store').textContent = State.settings.store || window.Config.STORE;
+    document.getElementById('list-month').value = snap.month;
+    document.getElementById('export-month').value = snap.month;
+    applyMonth(snap.month, snap.rows);
+    ensureEntry();
+    show('entry');
+    syncBar('這是上次的資料，更新中…');
   }
 
   /* 登入成功後才會走到這裡：把設定、常用項目、鎖定月份一次拿齊，再進登記畫面 */
@@ -76,9 +151,13 @@
     var m = monthOf(todayISO());
     document.getElementById('list-month').value = m;
     document.getElementById('export-month').value = m;
-    return loadMonth(m).then(function () {
-      window.ViewEntry.init();
+    /* bootstrap 帶回明細就直接用（新後端）。沒帶就退回打一趟 list——
+       後端先上、前端還是舊版的那幾分鐘不會壞掉。 */
+    var ready = boot.rows ? Promise.resolve(applyMonth(m, boot.rows)) : loadMonth(m);
+    return ready.then(function () {
+      ensureEntry();
       show('entry');
+      syncBar('');
     });
   }
 
@@ -151,7 +230,9 @@
 
   window.App = {
     State: State, show: show, loadMonth: loadMonth, renderSummaries: renderSummaries,
-    afterLogin: afterLogin, isLocked: isLocked, todayISO: todayISO, monthOf: monthOf, money: money
+    afterLogin: afterLogin, isLocked: isLocked, todayISO: todayISO, monthOf: monthOf, money: money,
+    readSnapshot: readSnapshot, showSnapshot: showSnapshot, clearSnapshot: clearSnapshot,
+    syncBar: syncBar
   };
 
   document.addEventListener('DOMContentLoaded', init);

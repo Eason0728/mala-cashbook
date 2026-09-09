@@ -46,11 +46,22 @@ function doGet() {
 
 // ---------- 共用 ----------
 
+/* 每次 doPost 都是一個全新的執行實例，所以這兩個快取的壽命就是「這一次請求」，
+   不會有跨請求拿到舊設定的問題。會做快取是因為登入一趟本來要讀「設定」三次：
+   assertPass 一次、apiBootstrap 拿店別一次、apiCreate 再一次。
+   每次 getValues() 都是一趟到 Sheets 後端的往返，省下來是實打實的秒數。 */
+var _ssCache = null;
+var _settingsCache = null;
+
 function ss() {
+  if (_ssCache) return _ssCache;
   var active = SpreadsheetApp.getActiveSpreadsheet();
-  if (active) return active;
-  if (!SHEET_ID_FALLBACK) throw new Error('NO_SPREADSHEET');
-  return SpreadsheetApp.openById(SHEET_ID_FALLBACK);
+  if (!active) {
+    if (!SHEET_ID_FALLBACK) throw new Error('NO_SPREADSHEET');
+    active = SpreadsheetApp.openById(SHEET_ID_FALLBACK);
+  }
+  _ssCache = active;
+  return active;
 }
 function sheet(name) {
   var s = ss().getSheetByName(name);
@@ -59,9 +70,11 @@ function sheet(name) {
 }
 
 function settings() {
+  if (_settingsCache) return _settingsCache;
   var rows = sheet(SHEET_SETTINGS).getDataRange().getValues();
   var map = {};
   rows.forEach(function (r) { if (r[0]) map[String(r[0]).trim()] = String(r[1]).trim(); });
+  _settingsCache = map;
   return map;
 }
 
@@ -111,24 +124,38 @@ function assertOpen(month) {
 
 // ---------- API ----------
 
-function apiBootstrap() {
-  var cfg = settings();
+/* 一律轉字串：試算表會把純數字的科目或項目名稱回成 Number，
+   前端拿去 .replace()／.toLowerCase() 會直接炸掉整個登入流程。 */
+function frequentList() {
   var freq = sheet(SHEET_FREQUENT).getDataRange().getValues();
   freq.shift();
-  return {
+  return freq.filter(function (r) { return r[0] !== '' && r[1] !== ''; }).map(function (r) {
+    return { subject: String(r[0]), name: String(r[1]),
+             count: Number(r[2]) || 0, lastUsed: String(r[3] || '') };
+  });
+}
+
+/* 登入只打這一趟。帶了 month 就順便把當月明細一起回去，
+   前端不用再發一趟 list——少一次 Apps Script 冷啟動與一次載入試算表，
+   這是登入慢的最大單一來源（2026-09-10 實測，見 skill）。
+   不帶 month 時維持舊行為，舊版前端不會因為後端先上而壞掉。 */
+function apiBootstrap(req) {
+  var cfg = settings();
+  var out = {
     settings: {
       store: cfg['店別'] || '新竹光復',
       expenseSubjects: String(cfg['支出科目'] || '').split(',').filter(String),
       incomeSubjects: String(cfg['收入科目'] || '').split(',').filter(String)
     },
-    // 一律轉字串：試算表會把純數字的科目或項目名稱回成 Number，
-    // 前端拿去 .replace()／.toLowerCase() 會直接炸掉整個登入流程
-    frequent: freq.filter(function (r) { return r[0] !== '' && r[1] !== ''; }).map(function (r) {
-      return { subject: String(r[0]), name: String(r[1]),
-               count: Number(r[2]) || 0, lastUsed: String(r[3] || '') };
-    }),
+    frequent: frequentList(),
     lockedMonths: lockedMonths()
   };
+  var month = req && req.month;
+  if (month) {
+    out.rows = allRows().filter(function (r) { return monthOf(r.date) === month; });
+    out.month = month;
+  }
+  return out;
 }
 
 function apiList(req) {
@@ -170,7 +197,8 @@ function apiCreate(req) {
   ]);
   bumpFrequent(row.subject, row.name);
 
-  var out = { row: row, frequent: apiBootstrap().frequent };
+  // 只要常用項目，不要順便把設定與月結又讀一遍
+  var out = { row: row, frequent: frequentList() };
   if (photoFailed) out.warning = 'PHOTO_FAIL';
   return out;
 }
@@ -260,11 +288,13 @@ function photoFolder() {
   for (var i = 0; i < values.length; i++) {
     if (String(values[i][0]).trim() === '照片資料夾ID') {
       cfg.getRange(i + 1, 2).setValue(folder.getId());
+      _settingsCache = null;   // 設定已經被改過，快取裡那份已經是舊的
       return folder;
     }
   }
   // 設定分頁連那一列都沒有（舊版試算表）就補一列，不然下次又白建一個
   cfg.appendRow(['照片資料夾ID', folder.getId()]);
+  _settingsCache = null;
   return folder;
 }
 

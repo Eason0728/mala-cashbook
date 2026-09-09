@@ -278,6 +278,17 @@ input[inputmode="numeric"] { font-size: 22px; font-weight: 700; }
 }
 .mode-banner[hidden] { display: none; }
 
+/* 用上次的資料開畫面時的提示。金色＝還在更新，紅色＝連不上、記的帳送不出去。 */
+.sync-bar {
+  background: var(--brand-gold); color: var(--ink);
+  font-size: 12px; font-weight: 700; text-align: center; padding: 5px 10px;
+}
+.sync-bar.offline { background: var(--bad); color: #fff; }
+.sync-bar[hidden] { display: none; }
+
+/* 資料還是舊的時候把合計壓暗：帳本上最不能讓人誤會的就是這三個數字 */
+.data-stale .summary { opacity: .5; }
+
 @media (min-width: 640px) {
   .entry { grid-template-columns: 90px 1fr auto; }
 }

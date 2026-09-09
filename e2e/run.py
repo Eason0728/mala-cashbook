@@ -175,6 +175,7 @@ def run_suite(pw, engine, label, data, exp):
             run_lock(page, data)
             run_photo_warning(page)
             run_version_badge(page)
+            run_snapshot_boot(page)
 
             report(page)
     finally:
@@ -432,6 +433,87 @@ def run_version_badge(page):
     check('快取裡還有舊版時，顯示的是舊版那個', first == 'cashbook-v1', first or '(空的)')
     check('而且會叫使用者關掉重開', '完全關掉再重開' in v2, v2)
     page.evaluate("() => caches.delete('cashbook-v1')")
+
+
+SYNC_RECORDER = """
+  window.__syncSeen = [];
+  document.addEventListener('DOMContentLoaded', () => {
+    const bar = document.getElementById('sync-bar');
+    if (!bar) return;
+    const rec = () => { if (!bar.hidden) window.__syncSeen.push(bar.textContent.trim()); };
+    rec();
+    new MutationObserver(rec).observe(
+      bar, { attributes: true, childList: true, characterData: true, subtree: true });
+  });
+"""
+
+
+def run_snapshot_boot(page):
+    """重開 app 時要先用上次的資料把畫面開起來，後端在背景更新。
+
+    2026-09-10 加的：登入要等兩趟 Apps Script（實測 4～33 秒），店長每天開好幾次。
+    這條路最危險的兩件事都在這裡驗：
+      ① 畫面上是舊數字時有沒有講明白（帳本不能讓人分不出新舊）
+      ② 走這條路進來之後，ViewEntry.init() 有沒有被綁第二次
+         （綁兩次的話點一下「送出這一筆」會記成兩筆帳）
+    """
+    CM.scan(page, '快照重開')
+    click(page, '#tabs [data-view="entry"]', '回登記畫面準備測快照重開')
+    page.wait_for_selector('#view-entry:not([hidden])')
+    before_sum = text(page, '#summary-entry')
+    before_n = len(rows_state(page))
+
+    page.add_init_script(SYNC_RECORDER)
+    page.reload(wait_until='networkidle')
+
+    entered = True
+    try:
+        page.wait_for_selector('#view-entry:not([hidden])', timeout=8000)
+    except Exception:
+        entered = False
+    check('重開時不用再打通行碼就進得去', entered, text(page, '#login-error'))
+    if not entered:
+        return
+
+    seen = page.evaluate("() => window.__syncSeen || []")
+    check('先用上次的資料開畫面，而且有講明白是舊的',
+          any('上次的資料' in t for t in seen), seen)
+    page.wait_for_function(
+        "() => document.getElementById('sync-bar').hidden", timeout=8000)
+    check('背景更新回來就把提示收掉', page.evaluate(
+        "() => document.getElementById('sync-bar').hidden"))
+    check('合計與重開前一致', text(page, '#summary-entry') == before_sum,
+          '重開前 %s／重開後 %s' % (before_sum, text(page, '#summary-entry')))
+    check('明細沒有再打第二趟就在了', len(rows_state(page)) == before_n,
+          '重開前 %d 筆／重開後 %d 筆' % (before_n, len(rows_state(page))))
+
+    # 綁兩次事件的話，這一下點擊會記成兩筆
+    page.fill('#f-name', '快照重開後測試')
+    page.fill('#f-amount', '150')
+    click(page, '#btn-submit', '快照重開後送出一筆')
+    wait_idle(page)
+    after_n = len(rows_state(page))
+    check('快照重開後送一筆就只記一筆', after_n == before_n + 1,
+          '原本 %d 筆，送一次之後變 %d 筆' % (before_n, after_n))
+    shot(page, '06-快照重開')
+
+    # 通行碼被改掉的情況：背景更新會失敗，這時候不能把舊資料留在畫面上裝沒事
+    page.evaluate("() => localStorage.setItem('cashbook_pass_v1', '__已被改掉__')")
+    page.reload(wait_until='networkidle')
+    page.wait_for_timeout(1500)
+    check('通行碼失效時會退回登入畫面', page.evaluate(
+        "() => !document.getElementById('view-login').hidden"))
+    check('通行碼失效時不留著舊資料的畫面', page.evaluate(
+        "() => document.getElementById('sync-bar').hidden"))
+    check('通行碼失效時把記住的碼忘掉', page.evaluate(
+        "() => !localStorage.getItem('cashbook_pass_v1')"))
+    check('通行碼失效時把快照清掉', page.evaluate(
+        "() => !localStorage.getItem('cashbook_snapshot_v1')"))
+
+    # 收尾：把狀態還原成登入完的樣子，後面的 report 才掃得到同一組畫面
+    page.fill('#passcode', page.evaluate("() => window.__E2E_DATA.passcode"))
+    click(page, '#btn-login', '通行碼失效後重新登入')
+    page.wait_for_selector('#view-entry:not([hidden])', timeout=8000)
 
 
 def run_photo_warning(page):

@@ -48,13 +48,20 @@
   }
 
   var mock = {
-    bootstrap: function (pass) {
+    /* month 帶了就順便回當月明細——與 cloud 分支必須同形，
+       不然本機測到的登入流程跟正式環境走的不是同一條。 */
+    bootstrap: function (pass, month) {
       if (window.Config.REQUIRE_PASSCODE && pass !== window.MockData.passcode) return fail('AUTH_FAIL');
       var db = loadDB();
-      return Promise.resolve({
+      var out = {
         ok: true, settings: window.MockData.settings,
         frequent: db.frequent, lockedMonths: db.lockedMonths
-      });
+      };
+      if (month) {
+        out.month = month;
+        out.rows = db.rows.filter(function (r) { return monthOf(r.date) === month; });
+      }
+      return Promise.resolve(out);
     },
     list: function (pass, month) {
       var db = loadDB();
@@ -165,7 +172,7 @@
   }
 
   var cloud = {
-    bootstrap: function (pass) { return post('bootstrap', { pass: pass }); },
+    bootstrap: function (pass, month) { return post('bootstrap', { pass: pass, month: month }); },
     list: function (pass, month) { return post('list', { pass: pass, month: month }); },
     create: function (pass, p) { return post('create', Object.assign({ pass: pass }, p)); },
     update: function (pass, id, patch) { return post('update', Object.assign({ pass: pass, id: id }, patch)); },

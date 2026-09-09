@@ -42,6 +42,10 @@
   <button type="button" data-view="export" aria-selected="false">匯出</button>
 </nav>
 
+<!-- 畫面上的數字不是剛從後端拿的時候會出現。文字由 js/app.js 注入：
+     留在 HTML 裡會被連結預覽的抓取器撈去當網站說明（2026-09-08 踩過） -->
+<div class="sync-bar" id="sync-bar" hidden></div>
+
 <main>
 
   <!-- 登入 -->
