@@ -31,7 +31,21 @@ function doPost(e) {
       'void': apiVoid, lock: apiLock, unlock: apiUnlock, 'export': apiExport
     }[req.action];
     if (!fn) throw new Error('BAD_INPUT');
-    out = fn(req);
+    /* 會寫入試算表的動作要拿全域鎖：Apps Script 允許並發執行，
+       兩人同時記帳會用同一個列數算出重複的單號／收據編號。
+       唯讀動作（bootstrap/list/export）不上鎖，登入與查詢速度不受影響。 */
+    var MUTATING = { create: 1, update: 1, 'void': 1, lock: 1, unlock: 1 };
+    if (MUTATING[req.action]) {
+      var glock = LockService.getScriptLock();
+      if (!glock.tryLock(20000)) throw new Error('BUSY_TRY_AGAIN');
+      try {
+        out = fn(req);
+      } finally {
+        glock.releaseLock();
+      }
+    } else {
+      out = fn(req);
+    }
     out.ok = true;
   } catch (err) {
     out = { ok: false, error: String(err.message || err) };
