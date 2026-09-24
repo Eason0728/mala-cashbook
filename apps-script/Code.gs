@@ -54,8 +54,103 @@ function doPost(e) {
                        .setMimeType(ContentService.MimeType.JSON);
 }
 
-function doGet() {
+function doGet(e) {
+  if (e && e.parameter && e.parameter.diag === '1') return diagTiming_();
   return ContentService.createTextOutput('現金收支登記後端運作中');
+}
+
+/* ===== 暫時的效能診斷（2026-09-24 加，量完整段刪掉）=====
+ * 為什麼要有這段：登入慢是慢在「開試算表」還是「四張分頁各自的往返」，
+ * 從外面量不出來——外面只看得到一個總數。這兩個答案會導向完全不同的修法，
+ * 不量就是在賭。
+ * 只回耗時、列數、位元組數，不回任何帳目內容，所以不需要通行碼也無妨。
+ * 用法：<exec網址>?diag=1
+ */
+function diagTiming_() {
+  var marks = [];
+  var t0 = Date.now(), last = t0;
+  function mark(label) { var now = Date.now(); marks.push([label, now - last]); last = now; }
+
+  var book = SpreadsheetApp.getActiveSpreadsheet();
+  mark('1.取得試算表物件');
+
+  book.getName();                       // 物件可能是延遲建立的，碰一下才算真的開了
+  mark('2.實體化試算表');
+
+  var shCfg = book.getSheetByName(SHEET_SETTINGS);
+  mark('3.取分頁物件');
+
+  shCfg.getDataRange().getValues();
+  mark('4.讀「設定」分頁');
+
+  book.getSheetByName(SHEET_FREQUENT).getDataRange().getValues();
+  mark('5.讀「常用項目」分頁');
+
+  book.getSheetByName(SHEET_LOCKS).getDataRange().getValues();
+  mark('6.讀「月結」分頁');
+
+  var shRows = book.getSheetByName(SHEET_ROWS);
+  var lastRow = shRows.getLastRow();
+  mark('7.明細 getLastRow');
+
+  var raw = shRows.getDataRange().getValues();
+  mark('8.讀「明細」全表');
+
+  // 現行 allRows() 的做法：每一列都呼叫一次 Utilities.formatDate
+  var n = 0;
+  for (var i = 1; i < raw.length; i++) {
+    if (!raw[i][0]) continue;
+    Utilities.formatDate(new Date(raw[i][2]), 'Asia/Taipei', 'yyyy-MM-dd');
+    n++;
+  }
+  mark('9.逐列 Utilities.formatDate（' + n + ' 列）');
+
+  // 對照組：同樣跑一輪但自己組日期字串，用來看上面那一步值不值得換掉
+  for (var j = 1; j < raw.length; j++) {
+    var d = raw[j][2];
+    if (raw[j][0] && d && d.getFullYear) {
+      d.getFullYear(); d.getMonth(); d.getDate();
+    }
+  }
+  mark('10.逐列自己組日期（對照組）');
+
+  // 如果改成只讀當月那幾列，成本會變多少
+  var want = Math.min(200, Math.max(1, lastRow - 1));
+  if (lastRow > 1) {
+    shRows.getRange(Math.max(2, lastRow - want + 1), 1, want, HEADERS.length).getValues();
+  }
+  mark('11.只讀最後 ' + want + ' 列');
+
+  // 快取這條路可不可行：放不放得下、讀寫要多久
+  var body = [];
+  for (var k = 1; k < raw.length; k++) { if (raw[k][0]) body.push(raw[k]); }
+  var payload = JSON.stringify(body);
+  mark('12.序列化明細');
+
+  var verdict = '';
+  try {
+    var cache = CacheService.getScriptCache();
+    cache.put('__diag_probe__', payload, 60);
+    mark('13.寫進快取');
+    var got = cache.get('__diag_probe__');
+    mark('14.從快取讀回');
+    verdict = got === null ? '放不下（超過單項上限）'
+            : got === payload ? '放得下且完整' : '讀回來的內容不一致';
+    cache.remove('__diag_probe__');
+  } catch (err) {
+    mark('13.快取拋例外');
+    verdict = '例外：' + String(err.message || err);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    量測時間: Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss'),
+    明細有效列數: n,
+    明細最後一列: lastRow,
+    明細序列化後位元組: Utilities.newBlob(payload).getBytes().length,
+    快取可行性: verdict,
+    各段毫秒: marks,
+    函式內總毫秒: Date.now() - t0
+  }, null, 2)).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ---------- 共用 ----------

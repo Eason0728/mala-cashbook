@@ -6,3 +6,6 @@ node_modules/
 
 # 圖解的截圖產物（跑 e2e/guide/shoot.py 可重新產生）
 e2e/guide/s*.png
+
+# skill 工作流的本機備份（git 本身就是版控）
+*.bak
