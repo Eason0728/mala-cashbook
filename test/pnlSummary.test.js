@@ -67,7 +67,10 @@ var 常用項目Rows = [
 function makeSheet(rows) {
   var writeCalls = [];
   return {
-    _rows: rows,
+    // 深一層複製（逐列 slice）：freshSheets() 每次呼叫都要是全新、互不影響的資料，
+    // 不然某個測試 push 一筆進去，會透過共用的陣列參照漏到後面所有測試（曾經踩到：
+    // 明細/月結 module-level 陣列被直接當參照塞給每個 sheet，push 一次全部測試都看得到）。
+    _rows: rows.map(function (r) { return r.slice(); }),
     _writeCalls: writeCalls,
     getDataRange: function () {
       var self = this;
@@ -183,6 +186,7 @@ function callDoPost(sandbox, body) {
      res.expense, { 食材: 1500 });
   eq('pnlSummary income 加總（含 Date 物件日期那筆）', res.income, { 回收收入: 200 });
   eq('pnlSummary rows 數（3 筆：2 支出＋1 收入，排除作廢與跨月）', res.rows, 3);
+  eq('pnlSummary skipped（沒有髒資料時是 0）', res.skipped, 0);
   eq('pnlSummary locked（2026-09 沒鎖）', res.locked, false);
 })();
 
@@ -195,12 +199,24 @@ function callDoPost(sandbox, body) {
   eq('pnlSummary locked:true（月結分頁鎖定 2026-09）', res.locked, true);
 })();
 
-// ---------- 3. 錯金鑰 → AUTH ----------
+// ---------- 3. 錯金鑰 → AUTH（含長度不同、非字串型別，全部只回同一個 AUTH） ----------
 (function () {
   var sandbox = loadCodeGs(freshSheets(), { PNL_KEY: 'secret-pnl-key' });
   var res = callDoPost(sandbox, { action: 'pnlSummary', key: 'wrong-key', month: '2026-09' });
-  eq('錯金鑰 → ok:false', res.ok, false);
-  eq('錯金鑰 → error:AUTH', res.error, 'AUTH');
+  eq('錯金鑰（長度相同但內容不同）→ ok:false', res.ok, false);
+  eq('錯金鑰（長度相同但內容不同）→ error:AUTH', res.error, 'AUTH');
+
+  var res2 = callDoPost(sandbox, { action: 'pnlSummary', key: 'short', month: '2026-09' });
+  eq('錯金鑰（長度不同）→ error:AUTH', res2.error, 'AUTH');
+
+  var res3 = callDoPost(sandbox, { action: 'pnlSummary', key: 12345, month: '2026-09' });
+  eq('金鑰是數字（非字串型別）→ error:AUTH', res3.error, 'AUTH');
+
+  var res4 = callDoPost(sandbox, { action: 'pnlSummary', key: { toString: function () { return 'secret-pnl-key'; } }, month: '2026-09' });
+  eq('金鑰是物件（非字串型別，就算 toString 剛好對得上也要擋）→ error:AUTH', res4.error, 'AUTH');
+
+  var res5 = callDoPost(sandbox, { action: 'pnlSummary', key: null, month: '2026-09' });
+  eq('金鑰是 null → error:AUTH', res5.error, 'AUTH');
 })();
 
 // ---------- 4. 沒帶 key → AUTH ----------
@@ -241,12 +257,69 @@ function callDoPost(sandbox, body) {
   eq('既有 bootstrap 仍回店別', res.settings && res.settings.store, '新竹光復');
 })();
 
-// ---------- 8. 月份沒帶 → BAD_INPUT（不是靜默回空物件） ----------
+// ---------- 8. 月份沒帶／格式錯 → BAD_INPUT（不是靜默回空物件） ----------
 (function () {
   var sandbox = loadCodeGs(freshSheets(), { PNL_KEY: 'secret-pnl-key' });
   var res = callDoPost(sandbox, { action: 'pnlSummary', key: 'secret-pnl-key' });
   eq('沒帶 month → ok:false', res.ok, false);
   eq('沒帶 month → error:BAD_INPUT', res.error, 'BAD_INPUT');
+
+  ['2026-13', '2026-00', '2026-9', '2026/09', '202609', 'abcd-ef', ''].forEach(function (bad) {
+    var r = callDoPost(sandbox, { action: 'pnlSummary', key: 'secret-pnl-key', month: bad });
+    eq('month 格式錯（' + JSON.stringify(bad) + '）→ error:BAD_INPUT', r.error, 'BAD_INPUT');
+  });
+
+  var okBoundary1 = callDoPost(sandbox, { action: 'pnlSummary', key: 'secret-pnl-key', month: '2026-01' });
+  eq('month=2026-01（月份邊界，合法）不是 BAD_INPUT', okBoundary1.ok, true);
+  var okBoundary2 = callDoPost(sandbox, { action: 'pnlSummary', key: 'secret-pnl-key', month: '2026-12' });
+  eq('month=2026-12（月份邊界，合法）不是 BAD_INPUT', okBoundary2.ok, true);
+})();
+
+// ---------- 9. 台北時區 00:00 邊界（Date 物件日期）：跨過午夜就要算進新的月份 ----------
+(function () {
+  var sheets = freshSheets();
+  // Utilities.formatDate 以 Asia/Taipei（UTC+8）轉換：
+  // UTC 2026-08-31T16:00:00Z + 8h = 台北 2026-09-01T00:00:00 → 應歸 2026-09（月初第一刻）
+  sheets['明細']._rows.push([
+    '2026-09-999', '新竹光復', new Date('2026-08-31T16:00:00Z'), '支出', '食材', '跨午夜剛好進九月', 111,
+    '無', 111, 0, 9, '', '店長', '2026-09-01T00:00:00+08:00', '正常', '', ''
+  ]);
+  // UTC 2026-08-31T15:59:59Z + 8h = 台北 2026-08-31T23:59:59 → 應歸 2026-08（八月最後一秒）
+  sheets['明細']._rows.push([
+    '2026-08-998', '新竹光復', new Date('2026-08-31T15:59:59Z'), '支出', '食材', '八月最後一秒', 222,
+    '無', 222, 0, 8, '', '店長', '2026-08-31T23:59:59+08:00', '正常', '', ''
+  ]);
+  var sandbox = loadCodeGs(sheets, { PNL_KEY: 'secret-pnl-key' });
+
+  var sep = callDoPost(sandbox, { action: 'pnlSummary', key: 'secret-pnl-key', month: '2026-09' });
+  eq('台北 00:00:00 那筆算進 2026-09（食材 1000+500+111=1611）', sep.expense, { 食材: 1611 });
+
+  var aug = callDoPost(sandbox, { action: 'pnlSummary', key: 'secret-pnl-key', month: '2026-08' });
+  eq('台北 23:59:59 那筆算進 2026-08（食材 999+222=1221，跟本次改動前既有的跨月那筆疊在一起）', aug.expense, { 食材: 1221 });
+})();
+
+// ---------- 10. 金額非有限數（NaN／Infinity）：略過、不進合計，並回 skipped ----------
+(function () {
+  var sheets = freshSheets();
+  // 金額欄是非數字字串——Number('abc') 是 NaN，非有限數，該略過（HEADERS 17 欄：
+  // 單號,店別,日期,收支別,科目,項目名稱,金額,發票,未稅價,稅額,收據編號,照片連結,填表人,登記時間,狀態,作廢時間,作廢原因）
+  sheets['明細']._rows.push([
+    '2026-09-997', '新竹光復', '2026-09-20', '支出', '食材', '金額欄是文字髒資料', 'abc',
+    '無', 0, 0, 7, '', '店長', '2026-09-20T09:00:00+08:00', '正常', '', ''
+  ]);
+  // 金額欄整格空白——Number('') 是 0（有限數），這筆不該被當成髒資料略過，
+  // 是真的「金額 0」，要照樣算進合計、也不算進 skipped（跟上一筆是對照組，
+  // 確認「非有限數才略過」，不是「非數字型別就略過」）
+  sheets['明細']._rows.push([
+    '2026-09-996', '新竹光復', '2026-09-21', '收入', '回收收入', '金額欄整格空白', '',
+    '無', 0, 0, 8, '', '店長', '2026-09-21T09:00:00+08:00', '正常', '', ''
+  ]);
+  var sandbox = loadCodeGs(sheets, { PNL_KEY: 'secret-pnl-key' });
+  var res = callDoPost(sandbox, { action: 'pnlSummary', key: 'secret-pnl-key', month: '2026-09' });
+  eq('NaN 金額那筆不進合計（expense 仍是原本的 1500，不含那筆文字金額）', res.expense, { 食材: 1500 });
+  eq('空白金額那筆是合法的 0，照樣進合計（income 仍是 200，因為加 0 沒差）', res.income, { 回收收入: 200 });
+  eq('rows 兩筆都算進去（狀態正常、月份對，rows 不管金額合不合法）', res.rows, 5);
+  eq('skipped 只算 NaN 那 1 筆（空白金額是合法的 0，不算髒資料）', res.skipped, 1);
 })();
 
 // ---------- 收尾 ----------

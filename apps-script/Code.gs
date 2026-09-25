@@ -411,26 +411,40 @@ function pnlSummaryResponse(req) {
                        .setMimeType(ContentService.MimeType.JSON);
 }
 
+/* 金鑰比對：先擋型別／長度（不是字串、或長度跟真金鑰不同，直接 AUTH，不進逐字元比對），
+   長度一致時才逐字元 XOR 累加、比對到最後才判斷結果——避免用字串相等在第一個不同字元
+   就提早 return，讓外部用回應時間差猜金鑰內容。任何型別錯的輸入（undefined、數字、物件…）
+   一律回同一個 AUTH，不額外分錯誤訊息，减少可探測的資訊。 */
 function assertPnlKey(key) {
   var real = PropertiesService.getScriptProperties().getProperty('PNL_KEY');
-  if (!real || String(key) !== real) throw new Error('AUTH');
+  if (!real || typeof key !== 'string' || key.length !== real.length) throw new Error('AUTH');
+  var diff = 0;
+  for (var i = 0; i < real.length; i++) {
+    diff |= real.charCodeAt(i) ^ key.charCodeAt(i);
+  }
+  if (diff !== 0) throw new Error('AUTH');
 }
 
-/* 回應：{ok, month, store, expense:{科目:金額合計}, income:{科目:金額合計}, rows:N, locked}
+/* 回應：{ok, month, store, expense:{科目:金額合計}, income:{科目:金額合計}, rows:N, skipped:N, locked}
    排除狀態＝作廢；月份依「日期」欄（allRows() 已經把 Date 物件轉成 Asia/Taipei 的
    yyyy-MM-dd 字串）；金額用「金額」欄（allRows() 的 r.amount，含稅）；
-   locked＝「月結」分頁該月是否鎖定；科目不寫死，明細裡有什麼科目就回什麼。 */
+   locked＝「月結」分頁該月是否鎖定；科目不寫死，明細裡有什麼科目就回什麼。
+   月份格式必須是 YYYY-MM 且月份在 01–12（含缺帶、格式錯）才過，否則 BAD_INPUT。
+   金額非有限數（NaN／Infinity，理論上不該出現，但別讓一筆髒資料把整支回應搞壞）
+   的列直接跳過、不計入任何科目合計，並在 skipped 累計筆數讓呼叫方知道有資料被排除。 */
 function apiPnlSummary(req) {
   assertPnlKey(req.key);
   var month = req.month;
-  if (!month) throw new Error('BAD_INPUT');
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('BAD_INPUT');
 
   var rows = allRows().filter(function (r) {
     return monthOf(r.date) === month && r.status !== '作廢';
   });
 
   var expense = {}, income = {};
+  var skipped = 0;
   rows.forEach(function (r) {
+    if (typeof r.amount !== 'number' || !isFinite(r.amount)) { skipped++; return; }
     var bucket = r.kind === '收入' ? income : expense;
     bucket[r.subject] = (bucket[r.subject] || 0) + r.amount;
   });
@@ -441,6 +455,7 @@ function apiPnlSummary(req) {
     expense: expense,
     income: income,
     rows: rows.length,
+    skipped: skipped,
     locked: lockedMonths().indexOf(month) >= 0
   };
 }
