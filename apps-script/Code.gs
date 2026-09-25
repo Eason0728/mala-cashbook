@@ -25,6 +25,7 @@ function doPost(e) {
   var out;
   try {
     var req = JSON.parse(e.postData.contents);
+    if (req.action === 'pnlSummary') return pnlSummaryResponse(req);  // 損益系統唯讀端點：獨立金鑰，分流在 assertPass 之前
     assertPass(req.pass);
     var fn = {
       bootstrap: apiBootstrap, list: apiList, create: apiCreate, update: apiUpdate,
@@ -387,4 +388,74 @@ function setup() {
       ['說明', '科目改這裡就生效，不用改程式。通行碼只存這裡，不要寫進程式碼。']
     ]);
   }
+}
+
+// ---------- 損益系統唯讀端點（T12，mala-pnl-auto #13） ----------
+// 給集團「通用門市自動損益系統」讀當月現金收支合計用。完全唯讀：
+// 不呼叫任何 setValue/setValues/appendRow/insertSheet/deleteRow/clear/
+// DriveApp.create/PropertiesService...set.../LockService。
+// 認證用獨立金鑰 PNL_KEY（Script Properties，由 Eason 自己設值），不沿用店長通行碼、
+// 不沿用 assertPass。金鑰走 POST JSON body，不走 URL query。
+
+/* doPost 對 pnlSummary 走這條，繞過 assertPass(req.pass) 與既有的 fn 派工表，
+   所以既有八個 action 的程式碼完全沒被動到。 */
+function pnlSummaryResponse(req) {
+  var out;
+  try {
+    out = apiPnlSummary(req);
+    out.ok = true;
+  } catch (err) {
+    out = { ok: false, error: String(err.message || err) };
+  }
+  return ContentService.createTextOutput(JSON.stringify(out))
+                       .setMimeType(ContentService.MimeType.JSON);
+}
+
+/* 金鑰比對：先擋型別／長度（不是字串、或長度跟真金鑰不同，直接 AUTH，不進逐字元比對），
+   長度一致時才逐字元 XOR 累加、比對到最後才判斷結果——避免用字串相等在第一個不同字元
+   就提早 return，讓外部用回應時間差猜金鑰內容。任何型別錯的輸入（undefined、數字、物件…）
+   一律回同一個 AUTH，不額外分錯誤訊息，减少可探測的資訊。 */
+function assertPnlKey(key) {
+  var real = PropertiesService.getScriptProperties().getProperty('PNL_KEY');
+  if (!real || typeof key !== 'string' || key.length !== real.length) throw new Error('AUTH');
+  var diff = 0;
+  for (var i = 0; i < real.length; i++) {
+    diff |= real.charCodeAt(i) ^ key.charCodeAt(i);
+  }
+  if (diff !== 0) throw new Error('AUTH');
+}
+
+/* 回應：{ok, month, store, expense:{科目:金額合計}, income:{科目:金額合計}, rows:N, skipped:N, locked}
+   排除狀態＝作廢；月份依「日期」欄（allRows() 已經把 Date 物件轉成 Asia/Taipei 的
+   yyyy-MM-dd 字串）；金額用「金額」欄（allRows() 的 r.amount，含稅）；
+   locked＝「月結」分頁該月是否鎖定；科目不寫死，明細裡有什麼科目就回什麼。
+   月份格式必須是 YYYY-MM 且月份在 01–12（含缺帶、格式錯）才過，否則 BAD_INPUT。
+   金額非有限數（NaN／Infinity，理論上不該出現，但別讓一筆髒資料把整支回應搞壞）
+   的列直接跳過、不計入任何科目合計，並在 skipped 累計筆數讓呼叫方知道有資料被排除。 */
+function apiPnlSummary(req) {
+  assertPnlKey(req.key);
+  var month = req.month;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('BAD_INPUT');
+
+  var rows = allRows().filter(function (r) {
+    return monthOf(r.date) === month && r.status !== '作廢';
+  });
+
+  var expense = {}, income = {};
+  var skipped = 0;
+  rows.forEach(function (r) {
+    if (typeof r.amount !== 'number' || !isFinite(r.amount)) { skipped++; return; }
+    var bucket = r.kind === '收入' ? income : expense;
+    bucket[r.subject] = (bucket[r.subject] || 0) + r.amount;
+  });
+
+  return {
+    month: month,
+    store: settings()['店別'] || '新竹光復',
+    expense: expense,
+    income: income,
+    rows: rows.length,
+    skipped: skipped,
+    locked: lockedMonths().indexOf(month) >= 0
+  };
 }
