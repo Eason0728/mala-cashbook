@@ -174,6 +174,7 @@ def run_suite(pw, engine, label, data, exp):
             run_export(page, data)
             run_lock(page, data)
             run_photo_warning(page)
+            run_auto_retry(page)
             run_version_badge(page)
             run_snapshot_boot(page)
 
@@ -555,6 +556,96 @@ def run_photo_warning(page):
     check('照片失敗時不會同時跳綠色的成功訊息',
           page.evaluate("() => document.getElementById('entry-ok').hidden"))
     page.evaluate("() => { window.Api.create = window.__origCreate; }")
+
+
+def run_auto_retry(page):
+    """唯讀動作逾時會自動重送一次；寫入動作永遠不會。
+
+    為什麼要有這段：2026-09-25 取樣 19 發，有 5 發（26%）超過前端 20 秒逾時，
+    店長看到的就是失敗、得重按。失敗是隨機散落的，重送一次能救回大部分。
+    但寫入動作重送會記成兩筆帳，所以這裡最重要的一項不是「重試會動」，
+    而是「create 逾時只被呼叫一次」。
+
+    重試刻意寫在 Api 的共用層而不是 cloud 裡面——包進 cloud 的話 local 走不到，
+    這一整段就一項都驗不到（匯出、拍照、快照已經在這個坑摔過三次）。
+    """
+    click(page, '#tabs [data-view="list"]', '切到清單驗自動重試')
+    page.wait_for_selector('#view-list:not([hidden])')
+
+    # ① 唯讀：第一趟逾時、第二趟成功
+    page.evaluate("""() => {
+        window.__origList = window.Api.local.list;
+        window.__listCalls = 0;
+        window.Api.local.list = function (pass, month) {
+            window.__listCalls++;
+            if (window.__listCalls === 1) return Promise.reject(new Error('TIMEOUT'));
+            return window.__origList.call(window.Api.local, pass, month);
+        };
+    }""")
+    got = page.evaluate("""async () => {
+        try { const r = await window.Api.list('1234', window.App.State.month); return !!(r && r.ok); }
+        catch (e) { return 'ERR:' + e.message; }
+    }""")
+    calls = page.evaluate("() => window.__listCalls")
+    check('讀取逾時會自動重送一次並成功', got is True, got)
+    check('讀取重送剛好一次，不是無限重試', calls == 2, '呼叫了 %s 次' % calls)
+    page.evaluate("() => { window.Api.local.list = window.__origList; }")
+
+    # ② 後端有明確回話的錯誤不該重送——再送一百次也是同一個答案
+    page.evaluate("""() => {
+        window.__origList2 = window.Api.local.list;
+        window.__authCalls = 0;
+        window.Api.local.list = function () {
+            window.__authCalls++;
+            return Promise.reject(new Error('AUTH_FAIL'));
+        };
+    }""")
+    err = page.evaluate("""async () => {
+        try { await window.Api.list('x', '2026-09'); return 'NO_ERROR'; }
+        catch (e) { return e.message; }
+    }""")
+    calls = page.evaluate("() => window.__authCalls")
+    check('通行碼錯不會重送（重送沒有意義）', calls == 1, '呼叫了 %s 次' % calls)
+    check('通行碼錯仍然把錯誤丟回上層', err == 'AUTH_FAIL', err)
+    page.evaluate("() => { window.Api.local.list = window.__origList2; }")
+
+    # ③ 最重要的一項：寫入逾時絕不自動重送，否則會記成兩筆帳
+    page.evaluate("""() => {
+        window.__origCreate3 = window.Api.local.create;
+        window.__createCalls = 0;
+        window.Api.local.create = function () {
+            window.__createCalls++;
+            return Promise.reject(new Error('TIMEOUT'));
+        };
+    }""")
+    err = page.evaluate("""async () => {
+        try {
+            await window.Api.create('1234', { date: '2026-09-15', kind: '支出',
+                subject: '食材', name: '重送測試', amount: 100, hasInvoice: false });
+            return 'NO_ERROR';
+        } catch (e) { return e.message; }
+    }""")
+    calls = page.evaluate("() => window.__createCalls")
+    check('★ 寫入逾時絕不自動重送（重送會記成兩筆帳）', calls == 1, '呼叫了 %s 次' % calls)
+    check('寫入逾時仍然把錯誤丟回上層', err == 'TIMEOUT', err)
+    page.evaluate("() => { window.Api.local.create = window.__origCreate3; }")
+
+    # ④ 重送進行中按鈕要說出來，不然秒數跑到 30 幾會被當成當機
+    seen = page.evaluate("""async () => {
+        window.Api.retrying = true;
+        const btn = document.createElement('button');
+        btn.textContent = '測試用';
+        document.body.appendChild(btn);
+        const p = window.Busy.run(btn, () => new Promise(r => setTimeout(r, 400)));
+        await new Promise(r => setTimeout(r, 200));
+        const txt = btn.textContent;
+        await p;
+        btn.remove();
+        window.Api.retrying = false;
+        return txt;
+    }""")
+    check('重送進行中按鈕顯示「重試中」', '重試中' in seen, seen)
+    check('重送旗標事後有歸零', page.evaluate("() => window.Api.retrying === false"))
 
 
 def run_export(page, data):

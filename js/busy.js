@@ -45,7 +45,9 @@
 
     function paint() {
       var secs = ((Date.now() - started) / 1000).toFixed(1);
-      btn.textContent = label + ' ' + secs + ' 秒';
+      // 自動重送第二趟時要說出來，不然秒數一路跑到 30 幾，店長會以為是當掉了
+      var tag = (window.Api && window.Api.retrying) ? '（重試中）' : '';
+      btn.textContent = label + ' ' + secs + ' 秒' + tag;
     }
 
     btn.disabled = true;
