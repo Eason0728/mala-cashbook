@@ -175,6 +175,7 @@ def run_suite(pw, engine, label, data, exp):
             run_lock(page, data)
             run_photo_warning(page)
             run_auto_retry(page)
+            run_timeout_recovery(page, data)
             run_version_badge(page)
             run_snapshot_boot(page)
 
@@ -646,6 +647,122 @@ def run_auto_retry(page):
     }""")
     check('重送進行中按鈕顯示「重試中」', '重試中' in seen, seen)
     check('重送旗標事後有歸零', page.evaluate("() => window.Api.retrying === false"))
+
+
+def run_timeout_recovery(page, data):
+    """逾時之後不要猜，去查；同一份內容重按要帶同一個識別碼。
+
+    2026-09-24 深夜的真實事故：前端 20 秒逾時只中止瀏覽器這一端，後端照樣寫進
+    試算表，畫面卻跳「這次沒送出去，請再按一次」。店長照做，收據 73/74/77 外送
+    三筆、79/80/83 瓦斯三筆，全進了試算表，隔天一筆一筆作廢。
+
+    兩道防線都在這裡驗：
+      B（第一道）＝逾時後自己查一次清單，查到就告訴店長「已經記進去了」
+      A（第二道）＝同一份內容重按帶同一個 clientToken，後端據此擋掉第二筆
+    """
+    click(page, '#tabs [data-view="entry"]', '回登記畫面驗逾時處理')
+    page.wait_for_selector('#view-entry:not([hidden])')
+
+    # ① 逾時、但後端其實寫進去了 → 前端要自己查到，並且不能再記一筆
+    page.evaluate("""() => {
+        window.__origCreate = window.Api.local.create;
+        window.__tokens = [];
+        window.Api.local.create = function (pass, p) {
+            window.__tokens.push(p.clientToken || '(沒有帶)');
+            // 照樣寫進「後端」，但對前端假裝逾時——這就是真實世界發生的事
+            return window.__origCreate.call(window.Api.local, pass, p)
+                     .then(() => Promise.reject(new Error('TIMEOUT')));
+        };
+    }""")
+    page.fill('#f-name', '逾時但其實成功')
+    page.fill('#f-amount', '321')
+    n_before = len(rows_state(page))
+    click(page, '#btn-submit', '送出一筆（模擬逾時但後端成功）')
+    page.wait_for_timeout(2500)
+    okmsg = text(page, '#entry-ok')
+    errmsg = text(page, '#entry-error')
+    shown = okmsg + errmsg
+    rows_after = rows_state(page)
+    hit = [r for r in rows_after if r.get('name') == '逾時但其實成功']
+    check('★ 逾時但後端其實成功時，只會有一筆（不是兩筆）', len(hit) == 1, '找到 %d 筆' % len(hit))
+    check('逾時後前端有自己去查，不是直接斷定失敗',
+          ('已經記' in shown) or ('記錄' in shown), shown[:60] or '(畫面沒有任何訊息)')
+    check('不會再跳「這次沒送出去、請再按一次」這種會害人重記的話',
+          '沒送出去' not in shown, shown[:60])
+    page.evaluate("() => { window.Api.local.create = window.__origCreate; }")
+
+    # ② 同一份內容重按，要帶同一個識別碼（後端才擋得掉）
+    page.evaluate("""() => {
+        window.__origCreate2 = window.Api.local.create;
+        window.__tokens2 = [];
+        window.Api.local.create = function (pass, p) {
+            window.__tokens2.push(p.clientToken || '(沒有帶)');
+            return Promise.reject(new Error('SERVER_ERROR'));   // 讓它失敗，內容留在表單上
+        };
+    }""")
+    page.fill('#f-name', '重按測試')
+    page.fill('#f-amount', '111')
+    click(page, '#btn-submit', '送出（第一次，會失敗）')
+    page.wait_for_timeout(900)
+    page.evaluate("() => document.getElementById('btn-submit').click()")
+    page.wait_for_timeout(900)
+    toks = page.evaluate("() => window.__tokens2")
+    check('送出時有帶識別碼', len(toks) >= 2 and all(t != '(沒有帶)' for t in toks), str(toks))
+    check('★ 內容沒改而重按，兩次帶同一個識別碼', len(toks) >= 2 and toks[0] == toks[1],
+          '%s vs %s' % (toks[0] if toks else '-', toks[1] if len(toks) > 1 else '-'))
+
+    # ③ 改了金額再送 → 必須換新識別碼，否則會被後端誤當成重複而擋掉
+    page.fill('#f-amount', '222')
+    click(page, '#btn-submit', '改金額後再送')
+    page.wait_for_timeout(900)
+    toks = page.evaluate("() => window.__tokens2")
+    check('★ 改過內容再送要換新識別碼（不然真的想改金額會被當成重複擋掉）',
+          len(toks) >= 3 and toks[2] != toks[1], '%s vs %s' % (toks[1], toks[2] if len(toks) > 2 else '-'))
+    page.evaluate("() => { window.Api.local.create = window.__origCreate2; }")
+
+    # ④ 成功記完之後再記一筆一模一樣的，要是新的識別碼
+    page.evaluate("""() => {
+        window.__origCreate3 = window.Api.local.create;
+        window.__tokens3 = [];
+        window.Api.local.create = function (pass, p) {
+            window.__tokens3.push(p.clientToken);
+            return window.__origCreate3.call(window.Api.local, pass, p);
+        };
+    }""")
+    page.fill('#f-name', '同樣的東西買兩次')
+    page.fill('#f-amount', '99')
+    click(page, '#btn-submit', '送出第一筆')
+    page.wait_for_timeout(1200)
+    page.fill('#f-name', '同樣的東西買兩次')
+    page.fill('#f-amount', '99')
+    page.evaluate("() => document.getElementById('btn-submit').click()")
+    page.wait_for_timeout(1200)
+    toks = page.evaluate("() => window.__tokens3")
+    check('★ 成功之後再記一筆一樣的，識別碼要是新的（店長真的可能買兩次）',
+          len(toks) >= 2 and toks[0] != toks[1], str(toks))
+    both = [r for r in rows_state(page) if r.get('name') == '同樣的東西買兩次']
+    check('兩筆一樣的都記得下來，沒有被誤擋', len(both) == 2, '記到 %d 筆' % len(both))
+    page.evaluate("() => { window.Api.local.create = window.__origCreate3; }")
+
+    # ⑤ 逾時而且連查都查不到 → 要誠實說不確定，不可以叫人再按一次
+    page.evaluate("""() => {
+        window.__origCreate4 = window.Api.local.create;
+        window.__origList4 = window.Api.local.list;
+        window.Api.local.create = () => Promise.reject(new Error('TIMEOUT'));
+        window.Api.local.list = () => Promise.reject(new Error('TIMEOUT'));
+    }""")
+    page.fill('#f-name', '完全連不上')
+    page.fill('#f-amount', '77')
+    click(page, '#btn-submit', '送出（逾時且查不到）')
+    page.wait_for_timeout(2500)
+    err = text(page, '#entry-error')
+    check('查不到時要說「無法確認」，不能謊稱沒送出去',
+          ('無法確認' in err) or ('確認' in err), err[:70] or '(沒有訊息)')
+    check('這種情況也不可以叫人直接再按一次', '再按一次' not in err, err[:70])
+    page.evaluate("""() => {
+        window.Api.local.create = window.__origCreate4;
+        window.Api.local.list = window.__origList4;
+    }""")
 
 
 def run_export(page, data):

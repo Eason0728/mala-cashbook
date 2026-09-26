@@ -179,6 +179,33 @@ function apiList(req) {
 
 function apiCreate(req) {
   var month = monthOf(req.date);
+
+  /* 冪等：同一次送出（同一個 clientToken）只會產生一筆帳。
+     為什麼需要：前端 20 秒逾時只中止瀏覽器這一端，**後端照樣跑完並寫進試算表**，
+     畫面卻跳「這次沒送出去，請再按一次」。2026-09-24 深夜就這樣記出三組重複帳
+     （收據 73/74/77 外送、79/80/83 瓦斯，店長各按三次、三筆全寫進去），
+     隔天要一筆一筆作廢。
+
+     用 CacheService 而不是在明細表加一欄：重按都發生在一兩分鐘內，快取存 6 小時
+     綽綽有餘，而且不動既有 17 欄的結構與匯出格式。
+     ⚠ 快取失效（重新部署、實例重啟）時會退回「記兩筆」的舊行為——不會比現在更糟，
+     而且前端逾時後會自己查一次清單，那才是第一道防線，這裡是第二道。
+
+     能這樣寫是因為 create 整個跑在 LockService 的鎖裡（@7 加的）：第二次請求會等
+     第一次寫完快取才輪到，不會兩邊同時查到「沒記過」而都去 append。 */
+  var cache = null, cacheKey = '';
+  if (req.clientToken) {
+    // token 是外部輸入，而且 CacheService 的 key 上限 250 字元，一律截短
+    cacheKey = 'create:' + String(req.clientToken).slice(0, 120);
+    cache = CacheService.getScriptCache();
+    var seen = cache.get(cacheKey);
+    if (seen) {
+      // 這一次送出早就寫進去了。把當初那筆原封不動回去：不再 append、也不再
+      // bumpFrequent（否則重按幾次，常用項目的使用次數就被灌水幾次）。
+      return { row: JSON.parse(seen), frequent: frequentList(), duplicate: true };
+    }
+  }
+
   assertOpen(month);
   if (!req.date || !req.subject || !req.name || !(Number(req.amount) > 0)) throw new Error('BAD_INPUT');
 
@@ -211,6 +238,10 @@ function apiCreate(req) {
     row.author, row.createdAt, row.status, '', ''
   ]);
   bumpFrequent(row.subject, row.name);
+
+  // 記下這一次送出已經完成。放在鎖裡面、回應送出之前——就算網路把回應弄丟了，
+  // 店長重按時後端也認得出這是同一次送出。
+  if (cache) cache.put(cacheKey, JSON.stringify(row), 21600);   // 6 小時
 
   // 只要常用項目，不要順便把設定與月結又讀一遍
   var out = { row: row, frequent: frequentList() };

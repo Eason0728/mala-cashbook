@@ -132,6 +132,24 @@
     });
   }
 
+  /* 這一次送出的識別碼，後端拿它擋掉重複的第二筆。
+     規則：同一份內容重按用同一個，內容一改就換新的。
+     為什麼不是每次點擊都發新的：那樣重按照樣會記成第二筆，等於沒做。
+     為什麼內容改了一定要換新的：不然店長逾時後改了金額再送，
+     會被後端當成同一次送出而擋掉，他的修正就永遠記不進去。 */
+  var clientToken = '';
+  var tokenFor = '';
+  function tokenOf(p) {
+    var key = [p.date, p.kind, p.subject, p.name, p.amount, p.hasInvoice ? 1 : 0].join('|');
+    if (key !== tokenFor) {
+      tokenFor = key;
+      clientToken = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    }
+    return clientToken;
+  }
+  // 記成功之後一定要忘掉，否則店長真的買兩次一樣的東西，第二筆會被當成重複擋掉
+  function forgetToken() { tokenFor = ''; clientToken = ''; }
+
   function submit(btn) {
     clearMessages();
     var payload = {
@@ -148,9 +166,40 @@
       return;
     }
 
+    payload.clientToken = tokenOf(payload);
+
+    /* 送出前先記下現在有哪些單號。逾時後要靠這份名單認出「哪一筆是剛剛新增的」，
+       用單號差集而不是只比內容——因為店長真的可能連記兩筆一模一樣的。 */
+    var knownIds = {};
+    window.App.State.rows.forEach(function (r) { knownIds[r.id] = 1; });
+
     return window.Busy.run(btn, function () {
-      return window.Api.create(window.App.State.pass, payload).then(function (res) {
-        window.App.State.rows.push(res.row);
+      return window.Api.create(window.App.State.pass, payload).catch(function (err) {
+        if ((err && err.message) !== 'TIMEOUT') throw err;
+        /* 逾時只代表瀏覽器不等了，**不代表後端沒寫進去**——它其實常常寫進去了。
+           2026-09-24 深夜就是這樣：畫面說沒送出去，店長照著再按，收據 73/74/77、
+           79/80/83 兩組各記了三筆。所以這裡不准猜，去查一次當月清單。 */
+        return window.Api.list(window.App.State.pass, window.App.monthOf(payload.date))
+          .then(function (res) {
+            var list = (res && res.rows) || [], found = null;
+            for (var i = list.length - 1; i >= 0; i--) {
+              var r = list[i];
+              if (knownIds[r.id]) continue;              // 送出前就有的，不是這次的
+              if (r.date === payload.date && r.kind === payload.kind &&
+                  r.subject === payload.subject && r.name === payload.name &&
+                  Number(r.amount) === Number(payload.amount)) { found = r; break; }
+            }
+            if (!found) throw new Error('NOT_SAVED');    // 查過了，確實沒進去
+            return { row: found, frequent: res.frequent, rows: list, recovered: true };
+          }, function () {
+            // 連查都查不到，那就不知道。誠實說不確定，而且絕不叫人再按一次。
+            throw new Error('TIMEOUT_UNSURE');
+          });
+      }).then(function (res) {
+        /* 這一筆可能已經在畫面上了：後端擋掉重複（duplicate）或我們自己查回來的
+           （recovered），兩種都會拿到既有的那筆。不檢查就會在清單上看到兩列。 */
+        var already = window.App.State.rows.some(function (r) { return r.id === res.row.id; });
+        if (!already) window.App.State.rows.push(res.row);
         if (res.frequent) { window.App.State.frequent = res.frequent; window.Memory.set(res.frequent); }
         else window.Memory.remember(payload.subject, payload.name);
         window.App.renderSummaries();
@@ -162,9 +211,14 @@
            不講的話店長以為拍了就有存，月底調收據才發現一張都沒有。 */
         if (res.warning === 'PHOTO_FAIL') {
           msg('entry-error', '⚠️ ' + done + '　但這張收據照片沒有存成功，請留著紙本收據。', true);
+        } else if (res.recovered || res.duplicate) {
+          // 講清楚發生什麼事，不然店長會以為自己按了兩次、跑去清單找重複的
+          msg('entry-ok', '這筆其實已經記進去了（收據編號 ' + res.row.seq + '）。'
+                        + '剛才只是網路太慢，不是沒記到，不用再按一次。', true);
         } else {
           msg('entry-ok', done, true);
         }
+        forgetToken();   // 記成功了，下一筆要用新的識別碼
         clearForm(true); // 日期留著，連續打同一天的收據不用重選
       });
     }, {
