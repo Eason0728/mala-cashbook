@@ -43,7 +43,7 @@ cd ~/mala-cashbook; export PATH="$HOME/.local/node/bin:$PATH"; NODE="$HOME/.loca
 **負責人**：MacBook 的 Claude（Eason 在場核准、並在 Apps Script 編輯器按執行）。**①→④ 同一天內做完**——艦隊格先上線、守門還沒寫過 run，指揮台會判「守門還沒寫過結果」而每天誤報斷線，直到第一筆 run 出現。
 
 1. 把 `Eason0728/mala-fortune` 的分支 `watchdog-cashbook` **合併進 main**（`cashbook_health.yml`＋`command-deck/contracts.py`＋`rank.py` 同一包；yml 不在 main，守門的 `dispatch_` 會 404）。
-2. 把守門程式推上雲端：`cd ~/mala-gas/schedule-watchdog`，先照 `grep "排程守門" ~/.claude/mala-ops/dispatch-resources.md` 那一列確認它與 `~/mala-fortune/tools/gas-watchdog/Code.js`（版控正本）的同步方式，把 cashbook 段同步過來後 `clasp push -u eason`（個人帳號 a0953668824）。
+2. 把守門程式推上雲端：`cd ~/mala-gas/schedule-watchdog`，先照 `grep "排程守門" ~/.claude/mala-ops/dispatch-resources.md` 那一列確認它與 `~/mala-fortune/tools/gas-watchdog/Code.js`（版控正本）的同步方式，以**整檔複製**同步（`cp ~/mala-fortune/tools/gas-watchdog/Code.js ~/mala-gas/schedule-watchdog/Code.js`；複製前先 `git -C ~/mala-gas status` 看該檔有沒有未提交的改動，有就停下來問 Eason）後 `clasp push -u eason`（個人帳號 a0953668824）。
 3. **立刻**在 Apps Script 編輯器（Chrome 從 `script.google.com/u/1/home` 清單點進專案）手動執行 `cashbookWatch()` 一次（會送出判為 `skip` 的 run）。
 4. `gh run list --repo Eason0728/mala-fortune --workflow cashbook_health.yml` 要看到 **1 筆成功 run**才算完成；指揮台艦隊「現金帳伺服器」那格轉為正常。
 
@@ -271,6 +271,7 @@ DATA_DIR="$DATA" "$NODE" server/backup.js; echo "exit=$?"; curl -s http://127.0.
 - [ ] 03:50 備份已自動跑成功：`tail -n 8 "$DATA/logs/backup.out.log"` 有昨晚到今早的「備份成功」；`/cashbook/health` 為 `green` 且 `backupAt` 在今早 03:50 之後。備份試算表「明細」筆數＝Mac mini 筆數。
 - [ ] 守門的「現金帳伺服器」那格為綠（**已在 0-9 上線**；切換後 `config.js` 指向 `.ts.net` 的 `/cashbook/api`，守門 07:30 起改打 `/cashbook/health`；看指揮台艦隊同名那格與 `gh run list --repo Eason0728/mala-fortune --workflow cashbook_health.yml` 最新一筆）。
 - [ ] 店長昨天下午的真帳正常記在新系統（`list` 看得到），單號連續。
+- [ ] Mac mini 的程式改追 main：`cd ~/mala-cashbook && git fetch && git checkout main && git pull --ff-only`，確認 `git log -1` 與 GitHub main 相同後重啟服務（`sudo launchctl kickstart -k system/com.mala.cashbook`，Eason），`/cashbook/health` 仍綠。之後所有更新都從 main pull。
 
 **失敗怎麼辦**：備份沒跑 → `sudo launchctl print system/com.mala.cashbook.backup | grep -E 'state|last exit'`（Eason），手動跑一次看錯誤（DEPLOY 故障排除 E）；守門紅燈 → 照守門訊息指的原因處理，不要先回退（資料還在 Mac mini，回退要經 `ROLLBACK.md` 匯出，不是按鍵就好）。
 

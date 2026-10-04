@@ -24,6 +24,7 @@
     return window.Busy.run(btn, function () {
       return window.Api.adminGet(pass).then(function (res) {
         adminPass = pass;
+        el('set-admin-pass').value = '';   // 解鎖後輸入框不留管理碼（#5-11）
         el('set-expense').value = (res.expenseSubjects || []).join('\n');
         el('set-income').value = (res.incomeSubjects || []).join('\n');
         ['set-new-store', 'set-new-store2', 'set-new-admin', 'set-new-admin2'].forEach(function (id) { el(id).value = ''; });
@@ -32,7 +33,7 @@
     }, { doneText: '已讀取 ✓', onError: function (m) { note('set-error', m); } }).catch(function () {});
   }
 
-  var SAVE_UNSURE = '無法確認是否已儲存，請重新整理頁面後，進設定頁看一眼科目有沒有變。不要直接再按一次。';
+  var SAVE_UNSURE = '無法確認是否已儲存，不要直接再按一次。請重新整理頁面後進設定頁看一眼科目有沒有變；有換管理通行碼的話，舊碼進不去就改用新碼，有換店長通行碼的話，用新碼登入試試看。';
   var BAD_INPUT_TEXT = '科目或通行碼格式不對（科目 30 字內、最多 100 個；通行碼至少 4 碼、不能有空白）';
 
   // 存好之後的本機同步：畫面、快照、這台裝置記的碼。真的存好與「逾時後查到其實存好了」共用同一條
