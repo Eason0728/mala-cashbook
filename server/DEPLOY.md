@@ -116,11 +116,11 @@ export PATH="$HOME/.local/node/bin:$PATH"; NODE="$HOME/.local/node/bin/node"
 
 ## 第 2 步：程式、資料夾與 `.env` 骨架【Claude】
 
-repo 是 public，**不需要登入**。分支以 Eason 當時指定的為準（預設 `main`；切換前若還在 `macmini-backend` 就填那個）。
+repo 是 public，**不需要登入**。**部署一律用分支 `macmini-backend`**（部署在切換前，此時 `main` 還沒有 `server/`，也刻意不先併 main——併了會讓店員提早看到設定頁入口；Eason 另外指定分支才改）。切換完成（`CUTOVER.md` 第 5 步把 `macmini-backend` 併進 `main`）之後，Mac mini 的更新改從 `main` pull：`git -C "$REPO" checkout main && git pull --ff-only`。
 
 ```sh
 export PATH="$HOME/.local/node/bin:$PATH"; REPO="$HOME/mala-cashbook"; DATA="$HOME/mala-cashbook-data"; NODE="$HOME/.local/node/bin/node"
-BRANCH="main"                                               # 以 Eason 說的為準
+BRANCH="macmini-backend"                                     # 切換完成後的更新才改成 main；以 Eason 說的為準
 if [ -d "$REPO/.git" ]; then git -C "$REPO" fetch -q origin && git -C "$REPO" checkout -q "$BRANCH" && git -C "$REPO" pull -q --ff-only; else git clone -q -b "$BRANCH" https://github.com/Eason0728/mala-cashbook.git "$REPO"; fi
 git -C "$REPO" log --oneline -1; ls "$REPO/server/index.js" "$REPO/server/launchd"
 mkdir -p "$DATA/logs" && chmod 700 "$DATA"                  # logs 一定要先建：launchd 開不了 log 檔就不會啟動
@@ -168,6 +168,7 @@ K=$(openssl rand -hex 32); sed -i '' '/^BACKUP_KEY=/d' "$E"; printf 'BACKUP_KEY=
 2. 到備份 Apps Script（dingzhaoyuan5678 帳號那個「現金收支備份」專案）→ 專案設定 → 指令碼屬性 → 新增 `BACKUP_KEY`，⌘V 貼上 → 儲存。（若專案還沒跑過 `setup()`：編輯器選 `setup` → 執行並授權；部署為網頁應用程式的 `/exec` 網址已在 `.env` 的 `BACKUP_URL`。）
 3. 回終端機清空剪貼簿：`pbcopy < /dev/null`。
 4. 印的不是 `1`：整行重跑（會先刪舊行），再重做第 2～3 點。
+5. **目視核對備份網址**：Apps Script「管理部署作業」看現行網頁應用程式部署的 ID，**前 10 碼**要與 `.env` 的 `BACKUP_URL` 一致（`.env` 裡那段 `/macros/s/` 後面的前 10 碼，由 Eason 自己在終端機 `sed -n 's#^BACKUP_URL=.*/macros/s/\(.\{10\}\).*#\1#p' "$HOME/mala-cashbook/server/.env"` 取得）。只回報「一致」或「不一致」；不一致就請 Claude 補寫正確的 `BACKUP_URL`（把 sed 刪舊行再 printf 新行，網址由 Eason 貼給 Claude——部署網址不是祕密）。
 
 ```sh
 # ② ADMIN_INIT：Eason 自己想一組管理通行碼（至少 4 碼；會計進「設定」頁用）。輸入時不回顯
@@ -413,7 +414,7 @@ tail -n 3 "$DATA/logs/server.log"
 ```sh
 REPO="$HOME/mala-cashbook"
 git -C "$REPO" grep -l "guo""eason" | wc -l                 # 期望 0（字串拆兩半免得這行自己被搜到）
-git -C "$REPO" grep -In "ts""\.net" -- . ':!server/.env.example' | wc -l     # 期望 0：repo 內沒有真實 Funnel 主機名（字串拆兩半免得這行自己被搜到）
+git -C "$REPO" grep -IEn '[a-z0-9-]+\.tail[0-9a-z]+\.ts\.net' | wc -l     # 期望 0：repo 內沒有真實 Funnel 主機名（只抓真實形態；說明文字裡的 <mini>.ts.net 等佔位字串不算）
 git -C "$REPO" status --porcelain                           # 期望空白
 lsof -nP -iTCP:8795 -sTCP:LISTEN; lsof -nP -iTCP:8794 -sTCP:LISTEN; lsof -nP -iTCP:8793 -sTCP:LISTEN     # 各只有一行 127.0.0.1
 ls /Library/LaunchDaemons/com.dzy.* /Library/LaunchDaemons/com.mala.cashbook* 2>/dev/null     # 既有的 job 還在、沒被動到
@@ -483,7 +484,7 @@ curl -sf --retry 30 --retry-delay 1 --retry-connrefused http://127.0.0.1:8795/ca
 - 03:50 沒跑：`sudo launchctl print system/com.mala.cashbook.backup | grep -E 'state|last exit'`；機器睡眠時錯過的班會在喚醒後補跑。
 
 **F. 通行碼被鎖**
-- 症狀：店長輸入正確通行碼也回「錯誤次數過多」。原因：同一來源 10 分鐘內錯 20 次（若第 7 步實測 Funnel 沒帶 XFF，來源是全店共用的一個）。等 10 分鐘自動解除；重起伺服器**不會**清掉（計數存在資料庫）。
+- 症狀：店長輸入正確通行碼也回「錯誤次數過多」。原因：同一來源 10 分鐘內錯 20 次（若第 7 步實測 Funnel 沒帶 XFF，來源是全店共用的一個）。等 10 分鐘自動解除；鎖定計數在記憶體，**重起伺服器就會清掉**，但不建議為此重起；等 10 分鐘即可。
 
 ---
 

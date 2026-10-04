@@ -8,7 +8,7 @@
 
 - **Eason**：群組通知、舊 Apps Script 指令碼屬性、舊／備份 Apps Script 的部署、手機與電腦實測、核准 push。
 - **Mac mini 的 Claude**：只在 Mac mini 上跑 `server/` 的指令。
-- **MacBook 的 Claude**：前端 `js/config.js`、`sw.js`、push、損益系統連接器（需要 Eason 在場核准）。
+- **MacBook 的 Claude**：前端 `js/config.js`、`sw.js`、push、損益系統連接器的網址由 Eason 在瀏覽器改。
 
 硬規則：
 
@@ -32,11 +32,22 @@ cd ~/mala-cashbook; export PATH="$HOME/.local/node/bin:$PATH"; NODE="$HOME/.loca
 | 0-1 | Mac mini 部署完成（`DEPLOY.md` 第 0～8 步全過，含重開機測試），`deploy-evidence.txt` 有每一步的紀錄 | Mac mini 的 Claude | `curl -s http://127.0.0.1:8795/cashbook/health` 回 `"level":"green"`；手機 4G 打 `https://<funnel 主機>/cashbook/health` 也通；佈告欄 `/health` 與貨單 `/purchase/api/health` 仍正常（驗 Funnel 沒被動到） |
 | 0-2 | 備份 Apps Script（dingzhaoyuan5678 帳號）已部署、**Eason 已跑過 `setup()` 並授權**、指令碼屬性 `BACKUP_KEY` 已設，與 Mac mini `.env` 同一把 | Eason | `DEPLOY.md` 第 3 步 B1 已做；`DEPLOY.md` 第 8-1 手動備份結束碼 `0` |
 | 0-3 | **舊 Apps Script 已部署含 `FROZEN`／`importRows` 的新版**（`apps-script/Code.gs`，T7），且指令碼屬性已設 **`ROLLBACK_KEY`**（Eason 自產；`openssl rand -hex 32`，同時存進 Eason 自己的密碼管理器，回退時要用）。**這一步只部署程式與設金鑰，還不設 `FROZEN`** | Eason（MacBook 的 Claude 協助 `clasp push`／`deploy`，用**同一個部署 ID**，網址才不會換） | 部署後在店長手機用現行前端記一筆再作廢（確認新版沒弄壞既有功能）；Apps Script 指令碼屬性看得到 `ROLLBACK_KEY`（值不給 Claude 看）；**`FROZEN` 此刻不存在** |
-| 0-4 | 前端含 `MOVED` 錯誤文案（「系統已更新，請把 app 完全關掉再重新打開」）**已上線**（`js/busy.js`） | MacBook 的 Claude | Pages 上的 `js/busy.js` 有 `MOVED`：`curl -s https://eason0728.github.io/mala-cashbook/js/busy.js \| grep -c MOVED` 要 ≥ 1 |
+| 0-4 | （無前置）**部署不先併 main**：Mac mini 從分支 `macmini-backend` 部署，`main` 此時沒有 `server/` 與 `MOVED` 文案。凍結（第 3 步）到前端切換（第 5 步）之間，舊版前端遇到 `MOVED` 只會顯示一般錯誤——這段本來就是停機時段，可接受（第 1 步通知已先告知） | — | 第 5 步才把 `macmini-backend` 併進 `main` |
 | 0-5 | 目標資料庫是空的（部署後沒人寫過） | Mac mini 的 Claude | `"$NODE" -e "const{DatabaseSync}=require('node:sqlite');const d=new DatabaseSync(process.argv[1]+'/cashbook.db',{readOnly:true});console.log('rows',d.prepare('SELECT COUNT(*) n FROM rows').get().n)" "$DATA"` 要印 `rows 0`；`ls "$DATA/READONLY"` 要回「No such file」 |
 | 0-6 | 記下切換前的 `js/config.js` 的 `GAS_URL`（舊網址）與 `sw.js` 的 `VERSION`，**回退時要用**；並把舊 Apps Script 的**部署 ID／版本號**記下 | MacBook 的 Claude → 交給 Eason 存到自己的密碼管理器（舊網址是鑰匙，不貼 issue） | `git -C ~/mala-cashbook show HEAD:js/config.js` 有那一行；git 歷史本身也留著，回退時用 `git show <切換前 commit>:js/config.js` 取 |
 | 0-7 | 在 Mac mini 上以舊網址 `--dry-run` 量時間（只讀不寫，隨時可跑；通行碼由 Eason 自己輸入） | Eason 輸入通行碼、Mac mini 的 Claude 跑 | 照第 4 步的 dry-run 區塊，**提前一天先跑一次**，確認筆數合理、耗時、沒有「中止」訊息；預估正式搬遷耗時＝dry-run 耗時 + 寫入（通常 < 1 分鐘）。耗時決定第 1 步通知店長的時段長度 |
 | 0-8 | 現行資料沒有髒資料會讓 migrate 中止（`BAD_TS`、金額不合法、重複單號） | Mac mini 的 Claude | 0-7 的 dry-run 沒印「中止」；有的話（時間欄解析不了、單號重複）**先在舊試算表修好**再重跑 dry-run，不要帶到切換窗口裡才發現 |
+
+### 0-9 守門上線（**切換前**做；`config.js` 仍指 script.google.com，守門判「略過」並計入正常，不會誤報）
+
+**負責人**：MacBook 的 Claude（Eason 在場核准、並在 Apps Script 編輯器按執行）。**①→④ 同一天內做完**——艦隊格先上線、守門還沒寫過 run，指揮台會判「守門還沒寫過結果」而每天誤報斷線，直到第一筆 run 出現。
+
+1. 把 `Eason0728/mala-fortune` 的分支 `watchdog-cashbook` **合併進 main**（`cashbook_health.yml`＋`command-deck/contracts.py`＋`rank.py` 同一包；yml 不在 main，守門的 `dispatch_` 會 404）。
+2. 把守門程式推上雲端：`cd ~/mala-gas/schedule-watchdog`，先照 `grep "排程守門" ~/.claude/mala-ops/dispatch-resources.md` 那一列確認它與 `~/mala-fortune/tools/gas-watchdog/Code.js`（版控正本）的同步方式，把 cashbook 段同步過來後 `clasp push -u eason`（個人帳號 a0953668824）。
+3. **立刻**在 Apps Script 編輯器（Chrome 從 `script.google.com/u/1/home` 清單點進專案）手動執行 `cashbookWatch()` 一次（會送出判為 `skip` 的 run）。
+4. `gh run list --repo Eason0728/mala-fortune --workflow cashbook_health.yml` 要看到 **1 筆成功 run**才算完成；指揮台艦隊「現金帳伺服器」那格轉為正常。
+
+**失敗怎麼辦**：`dispatch_` 回 404 → 第 1 步沒合併；沒有 run → 看編輯器「執行紀錄」；艦隊格斷線 → 第 3 步沒跑，補跑即可。守門不影響記帳，也不擋切換。
 
 **失敗怎麼辦**：0-1～0-3 任何一項不過，**不進第 1 步**；這些都還沒影響店長，慢慢修。0-8 發現的髒資料由 Eason 在舊試算表修（修之前先複製試算表當備份）。
 
@@ -50,7 +61,7 @@ cd ~/mala-cashbook; export PATH="$HOME/.local/node/bin:$PATH"; NODE="$HOME/.loca
 
 > 【現金帳搬家通知】
 > 今天 ○○:○○～○○:○○ 現金收支登記要搬到新主機，這段時間**暫時不能記帳**，請先用紙本或手機備忘錄記，搬完再補登。
-> 畫面若出現「系統已更新，請把 app 完全關掉再重新打開」是正常的，照做就好。
+> 畫面若出現錯誤訊息或記不進去是正常的，先別重按。
 > ○○:○○ 之後請把 app 關掉再重新打開，**不用換通行碼**，之前記的帳都在。
 
 搬家完成（第 6 步全過）後 Eason 再發：
@@ -63,7 +74,7 @@ cd ~/mala-cashbook; export PATH="$HOME/.local/node/bin:$PATH"; NODE="$HOME/.loca
 > 【現金帳暫時換回舊系統】
 > 現金收支登記暫時換回原本的系統，請把 app 完全關掉再重新打開，通行碼不變，之前記的帳都在。
 
-**預期行為（不是故障）**：從凍結（第 3 步）到前端新 `config.js` 生效（第 5 步），中間含搬遷時間再加 Pages 快取約 30～60 秒到 10 分鐘；這段時間**寫入一律失敗（回 `MOVED`）、讀取照常**。
+**預期行為（不是故障）**：從凍結（第 3 步）到前端新 `config.js` 生效（第 5 步），中間含搬遷時間再加 Pages 快取約 30～60 秒到 10 分鐘；這段時間**寫入一律失敗（回 `MOVED`）、讀取照常**；舊版前端（`main` 尚未更新）遇 `MOVED` 只顯示一般錯誤，不會提示重開 app，這段是停機時段，可接受。
 
 ---
 
@@ -152,11 +163,11 @@ node server/tools/migrate.js; echo "exit=$?"                # ② 正式：一�
 
 ---
 
-## 5. MacBook 端 Claude：前端切到 Mac mini 並合併到 main
+## 5. MacBook 端 Claude：把 `macmini-backend` 合併進 main，並改 `GAS_URL`（一次做完）
 
 **負責人**：MacBook 的 Claude（Eason 核准 push）。**Funnel 主機名由 Eason 在對話裡給**（`DEPLOY.md` 第 6 步 Mac mini 的 Claude 當時交給他的）。
 
-**只改這幾處**：
+**合併與改網址在同一次 push 完成**（避免店員在切換前先看到設定頁入口）。合併後 Mac mini 的更新改從 `main` pull。**只改這幾處**：
 
 | 檔案 | 改成 |
 |---|---|
@@ -164,7 +175,7 @@ node server/tools/migrate.js; echo "exit=$?"                # ② 正式：一�
 | `sw.js` | `VERSION` 加一（舊快取會在啟用時全部清掉） |
 
 ```sh
-cd ~/mala-cashbook && git checkout main && git merge --ff-only macmini-backend    # 分支依 Eason 指定；後端程式與文件一併進 main
+cd ~/mala-cashbook && git checkout main && git pull --ff-only && git merge macmini-backend    # 後端程式、文件、設定頁、MOVED 文案一併進 main（此前刻意不併）
 # 編輯 js/config.js、sw.js 如上表
 node test/logic.test.js                                                            # 既有單元測試要全綠
 git add js/config.js sw.js && git commit -m "切換：前端改指 Mac mini 後端" && git push origin main
@@ -218,10 +229,10 @@ grep -E "api:(bootstrap|list|create|update|void|adminGet) " "$DATA/logs/server.l
 
 ## 7. 損益系統連接器改指 Mac mini，並實打一次 `pnlSummary`
 
-**負責人**：MacBook 的 Claude（損益系統 `~/mala-pnl-auto`，需 Eason 在場授權；連接器金鑰 `PNL_KEY` 由 Eason 輸入，Claude 不經手）
+**負責人**：Eason（瀏覽器操作；金鑰 `PNL_KEY` Claude 不經手）
 
-1. 損益系統現金帳連接器的網址，由舊 Apps Script `/exec` 改成 `https://<funnel 主機>/cashbook/api`（金鑰 `PNL_KEY` 與 Mac mini `.env` 同一把，沿用則不用換）。
-2. **實打一次**：在損益系統裡對當月按一次「重新帶入」（或其連接器的測試鍵）；或請 Eason 在自己的終端機：
+1. **Eason 在瀏覽器做**（Claude 不經手金鑰）：損益系統（`mala-pnl-auto` 網頁）→ **設定 → 連接器 → 現金帳那一列的 URL 欄**，由舊 Apps Script `/exec` 改成 `https://<funnel 主機>/cashbook/api`；**金鑰欄保持 `***` 不要重填**（沿用原金鑰，與 Mac mini `.env` 的 `PNL_KEY` 同一把）。⚠ 瀏覽器密碼自動填入曾把帳號塞進 URL 欄（2026-09-28 實例）：存檔前看一眼 URL 開頭是 `https://`。改完按「**立即拉取連接器**」。
+2. **實打一次**：上面的「立即拉取連接器」就是實打；也可請 Eason 在自己的終端機另外確認：
 
 ```sh
 read -rs "K?PNL_KEY（不回顯）：" K; echo
@@ -258,7 +269,7 @@ DATA_DIR="$DATA" "$NODE" server/backup.js; echo "exit=$?"; curl -s http://127.0.
 **負責人**：Mac mini 的 Claude ＋ MacBook 的 Claude
 
 - [ ] 03:50 備份已自動跑成功：`tail -n 8 "$DATA/logs/backup.out.log"` 有昨晚到今早的「備份成功」；`/cashbook/health` 為 `green` 且 `backupAt` 在今早 03:50 之後。備份試算表「明細」筆數＝Mac mini 筆數。
-- [ ] 守門（`schedule-watchdog`，07:30／09:30／10:30）的「現金帳伺服器」那格為綠（T11 的 `cashbookCore_`；指揮台艦隊同名那格）。若守門還沒加這一格（T11 未完成）→ 記在待辦，改由 Mac mini 的 Claude 每天早上看一次 `/cashbook/health`。
+- [ ] 守門的「現金帳伺服器」那格為綠（**已在 0-9 上線**；切換後 `config.js` 指向 `.ts.net` 的 `/cashbook/api`，守門 07:30 起改打 `/cashbook/health`；看指揮台艦隊同名那格與 `gh run list --repo Eason0728/mala-fortune --workflow cashbook_health.yml` 最新一筆）。
 - [ ] 店長昨天下午的真帳正常記在新系統（`list` 看得到），單號連續。
 
 **失敗怎麼辦**：備份沒跑 → `sudo launchctl print system/com.mala.cashbook.backup | grep -E 'state|last exit'`（Eason），手動跑一次看錯誤（DEPLOY 故障排除 E）；守門紅燈 → 照守門訊息指的原因處理，不要先回退（資料還在 Mac mini，回退要經 `ROLLBACK.md` 匯出，不是按鍵就好）。

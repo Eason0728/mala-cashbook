@@ -188,10 +188,10 @@ node server/tools/migrate.js --verify-only; echo "exit=$?"
    git add js/config.js sw.js && git commit -m "回退：前端改回舊 Apps Script 後端" && git push origin main
    curl -s https://eason0728.github.io/mala-cashbook/js/config.js | grep -c "script.google.com"     # 約 30～60 秒後要回 ≥ 1
    ```
-2. **損益系統連接器**：現金帳連接器網址由 `https://<funnel 主機>/cashbook/api` 改回舊 Apps Script `/exec`（金鑰不變）；實打一次 `pnlSummary`，回 `ok:true`、合計與舊試算表當月加總一致。損益若已定稿的月份，請 Eason 確認沒有因為回退而變動。
+2. **損益系統連接器**（Eason 在瀏覽器做）：損益系統網頁 → 設定 → 連接器 → 現金帳那一列的 URL 欄，由 `https://<funnel 主機>/cashbook/api` 改回舊 Apps Script `/exec`；**金鑰欄保持 `***` 不重填**；存檔前看一眼 URL 開頭是 `https://`（防瀏覽器密碼自動填入）。按「立即拉取連接器」實打，回 `ok:true`、合計與舊試算表當月加總一致。損益若已定稿的月份，請 Eason 確認沒有因為回退而變動。
 3. **Eason 發群組**：「現金收支登記暫時換回原本的系統，請把 app 完全關掉再重新打開，通行碼不變（若在新系統改過通行碼，請照 Eason 通知）。之前記的帳都在。」
 4. **實測（店長手機）**：登入、看得到切換後新記的帳、記一筆、作廢一筆、匯出。**店長記的第一筆單號要接在切換後最大單號之後**（不是撞號）。
-5. Mac mini：`READONLY` **保留著**（不要刪），伺服器與備份排程可繼續跑（備份讀的是 Mac mini 資料庫，內容不會再變；也可以先停掉備份 job 避免守門每天寄「備份成功但資料沒變」——由 Eason 決定，用 `sudo launchctl bootout system/com.mala.cashbook.backup`）。守門的「現金帳伺服器」那格若因 Mac mini 不再收寫入而紅燈，不是故障。
+5. Mac mini：`READONLY` **保留著**（不要刪），伺服器與備份排程可繼續跑（備份讀的是 Mac mini 資料庫，內容不會再變；也可以先停掉備份 job——由 Eason 決定，用 `sudo launchctl bootout system/com.mala.cashbook.backup`）。第 7 步改回 Google 後，守門判「略過」屬正常；若 Mac mini 的備份 job 停掉，26 小時後 `/cashbook/health` 會轉紅，但守門此時已不檢查。
 
 **失敗怎麼辦**
 - Pages 沒更新：GitHub → Actions 重跑 pages build。期間店長看得到、記不了（前端仍打 Mac mini，回 `READONLY`；錯誤文案提示請重開 app）。
