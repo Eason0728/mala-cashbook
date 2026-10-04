@@ -146,7 +146,7 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
     if (typeof date !== 'string' || !DATE_RE.test(date) || !validAmount(amount) || (kind !== '支出' && kind !== '收入')) throw E('BAD_INPUT');
     const t = splitTax(amount, hasInvoice);
     db.prepare('UPDATE rows SET date = ?, kind = ?, subject = ?, name = ?, amount = ?, has_invoice = ?, net = ?, tax = ? WHERE id = ?')
-      .run(date, kind, cleanText(req.subject || target.subject), cleanText(req.name || target.name), amount, hasInvoice ? 1 : 0, t.net, t.tax, target.id);
+      .run(date, kind, req.subject ? cleanText(req.subject) : target.subject, req.name ? cleanText(req.name) : target.name, amount, hasInvoice ? 1 : 0, t.net, t.tax, target.id);
     return { row: toApi(findRow(req.id), true) };
   }
 

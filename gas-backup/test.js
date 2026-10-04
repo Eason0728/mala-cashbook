@@ -9,13 +9,13 @@ let passed = 0;
 const J = (x) => JSON.parse(JSON.stringify(x));   // vm 內的陣列屬於另一個 realm，先轉成本 realm 再比 deepStrictEqual
 function t(name, fn) { try { fn(); passed++; console.log('ok   ' + name); } catch (e) { console.log('FAIL ' + name + '\n' + e.stack); process.exitCode = 1; } }
 
-function makeEnv(props) {
+function makeEnv(props, failOn) {
   const sheets = {}, files = {}, cache = {};
-  const mkSheet = (name) => ({ name, cleared: 0, values: [], fmts: [], frozen: 0,
+  const mkSheet = (name) => ({ name, cleared: 0, setName(n) { delete sheets[this.name]; this.name = n; sheets[n] = this; }, values: [], fmts: [], frozen: 0,
     clear() { this.cleared++; this.values = []; }, setFrozenRows(n) { this.frozen = n; },
-    getRange(r, c, nr, nc) { const s = this; return { setNumberFormats(f) { s.fmts = f; }, setValues(v) { assert.strictEqual(v.length, nr); assert.strictEqual(v[0].length, nc); s.values = v; } }; } });
-  const book = { getSheetByName: (n) => sheets[n] || null, insertSheet: (n) => (sheets[n] = mkSheet(n)), getId: () => 'SID', getUrl: () => 'u' };
-  const folder = { getId: () => 'FID', getUrl: () => 'u', getFilesByName: (n) => ({ hasNext: () => n in files }), createFile: (b) => { files[b.name] = b; return {}; } };
+    getRange(r, c, nr, nc) { const s = this; return { setNumberFormats(f) { s.fmts = f; }, setValues(v) { if (failOn && s.name === failOn) throw new Error('quota');  assert.strictEqual(v.length, nr); assert.strictEqual(v[0].length, nc); s.values = v; } }; } });
+  const book = { getSheetByName: (n) => sheets[n] || null, insertSheet: (n) => { if (sheets[n]) throw new Error('dup sheet'); return (sheets[n] = mkSheet(n)); }, deleteSheet: (sh) => { delete sheets[sh.name]; }, getSheets: () => Object.values(sheets), getId: () => 'SID', getUrl: () => 'u' };
+  const folder = { getId: () => 'FID', getUrl: () => 'u', getFilesByName: (n) => { const l = n in files ? [files[n]] : []; let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; }, createFile: (b) => { b.isTrashed = () => !!b.trashed; files[b.name] = b; return {}; } };
   let created = { ss: 0, folder: 0 };
   const ctx = {
     console, Logger: { log() {} },
@@ -55,11 +55,12 @@ t('backup：四分頁表頭與列數正確、公式字樣加引號、凍結首�
   assert.deepStrictEqual(J(e.sheets['月結'].values[0]), ['月份', '狀態', '鎖定時間']); assert.strictEqual(e.sheets['月結'].values.length, 2);
   assert.deepStrictEqual(J(e.sheets['科目'].values), [['收支別', '科目'], ['支出', '食材'], ['支出', '雜支'], ['收入', '回收收入']]);
   assert.ok(Object.values(e.sheets).every((s) => s.frozen === 1));
+  assert.ok(!('明細_new' in e.sheets), '暫名分頁要改名掉');
 });
 t('backup 跑兩次結果相同（整頁覆蓋），資料變少時舊列被清掉', () => {
   const e = makeEnv({ BACKUP_KEY: 'k', SHEET_ID: 'SID', FOLDER_ID: 'FID' });
   e.post(body('k')); const first = JSON.stringify(e.sheets['明細'].values);
-  e.post(body('k')); assert.strictEqual(JSON.stringify(e.sheets['明細'].values), first); assert.strictEqual(e.sheets['明細'].cleared, 2);
+  e.post(body('k')); assert.strictEqual(JSON.stringify(e.sheets['明細'].values), first);
   e.post(body('k', { rows: [HDR], frequent: [], locks: [] }));
   assert.strictEqual(e.sheets['明細'].values.length, 1); assert.strictEqual(e.sheets['月結'].values.length, 1);
 });
@@ -103,5 +104,25 @@ t('photo：存檔、同名再傳略過（冪等）、壞檔名拒絕、金鑰錯
   assert.strictEqual(e.files[name].data.toString(), 'jpgdata');
   assert.strictEqual(e.post({ action: 'photo', key: 'k', name: '../x.jpg', base64: b64 }).code, 'BAD_REQ');
   assert.strictEqual(e.post({ action: 'photo', key: 'bad', name: 'z.jpg', base64: b64 }).code, 'AUTH');
+});
+t('整頁覆蓋：寫入中途失敗 → 舊備份原封不動、回 SERVER、下次可重跑', () => {
+  const props = { BACKUP_KEY: 'k', SHEET_ID: 'SID' };
+  const e = makeEnv(props);
+  e.post(body('k')); const before = JSON.stringify(e.sheets['明細'].values);
+  const e2 = makeEnv(props, '科目_new');
+  Object.assign(e2.sheets, e.sheets);              // 帶著上次成功的四個分頁
+  const r = e2.post(body('k', { rows: [HDR] }));
+  assert.strictEqual(r.code, 'SERVER');
+  assert.strictEqual(JSON.stringify(e2.sheets['明細'].values), before);
+  const e3 = makeEnv(props); Object.assign(e3.sheets, e2.sheets);   // 殘留 *_new 也不擋下一次
+  assert.strictEqual(e3.post(body('k', { rows: [HDR] })).ok, true);
+  assert.strictEqual(e3.sheets['明細'].values.length, 1); assert.ok(!('明細_new' in e3.sheets));
+});
+t('photo：垃圾桶裡的同名檔不算已備份，會重存', () => {
+  const e = makeEnv({ BACKUP_KEY: 'k', FOLDER_ID: 'FID' });
+  const name = '2026-10-001_' + 'b'.repeat(32) + '.jpg', b64 = Buffer.from('x').toString('base64');
+  e.post({ action: 'photo', key: 'k', name, base64: b64 });
+  e.files[name].trashed = true;
+  assert.strictEqual(e.post({ action: 'photo', key: 'k', name, base64: b64 }).data.skipped, false);
 });
 console.log('\n' + passed + ' 項通過' + (process.exitCode ? '，有失敗' : '，全綠'));

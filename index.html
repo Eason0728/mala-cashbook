@@ -155,7 +155,55 @@
     </div>
   </section>
 
+  <!-- 設定（會計）：科目清單與通行碼，打管理通行碼才讀得到 -->
+  <section class="view" id="view-settings" hidden>
+    <div class="card">
+      <h2>設定（會計用）</h2>
+      <div class="msg error" id="set-error" hidden></div>
+      <div class="msg ok" id="set-ok" hidden></div>
+      <label class="field">
+        <span>管理通行碼</span>
+        <input type="password" id="set-admin-pass" autocomplete="off" placeholder="管理通行碼">
+      </label>
+      <button class="btn" id="btn-set-load" data-busy="讀取中">讀取設定</button>
+    </div>
+
+    <div class="card" id="set-form" hidden>
+      <label class="field">
+        <span>支出科目（一行一個，由上到下就是下拉順序）</span>
+        <textarea id="set-expense" rows="8"></textarea>
+      </label>
+      <label class="field">
+        <span>收入科目（一行一個）</span>
+        <textarea id="set-income" rows="5"></textarea>
+      </label>
+      <h2>換通行碼（不換就留空，至少 4 碼）</h2>
+      <label class="field">
+        <span>新的店長通行碼</span>
+        <input type="password" id="set-new-store" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>再輸入一次</span>
+        <input type="password" id="set-new-store2" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>新的管理通行碼</span>
+        <input type="password" id="set-new-admin" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>再輸入一次</span>
+        <input type="password" id="set-new-admin2" autocomplete="off">
+      </label>
+      <button class="btn" id="btn-set-save" data-busy="儲存中">儲存設定</button>
+    </div>
+
+    <button class="btn btn-secondary" id="btn-set-back" type="button">回登記畫面</button>
+  </section>
+
 </main>
+
+<!-- 會計用的設定入口：刻意放頁尾，不擠進店長記帳的主要動線。登入後才顯示（app.js 控制） -->
+<div class="footer-links"><button type="button" class="link-btn" id="btn-open-settings" hidden>設定（會計）</button></div>
 
 <!-- 這台裝置實際跑的版本。2026-09-09 加：照片那次除錯有一半時間耗在
      「不知道對方手上是哪一版」，看得到版本就不用猜。 -->
@@ -174,6 +222,7 @@
 <script src="js/views/entry.js"></script>
 <script src="js/views/list.js"></script>
 <script src="js/views/export.js"></script>
+<script src="js/views/settings.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

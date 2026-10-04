@@ -21,7 +21,7 @@
   function monthOf(dateStr) { return String(dateStr || '').slice(0, 7); }
   function money(n) { return (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-US'); }
 
-  var VIEWS = ['login', 'entry', 'list', 'export'];
+  var VIEWS = ['login', 'entry', 'list', 'export', 'settings'];
   function show(name) {
     VIEWS.forEach(function (v) {
       document.getElementById('view-' + v).hidden = (v !== name);
@@ -29,12 +29,14 @@
     var loggedIn = name !== 'login';
     document.getElementById('tabs').hidden = !loggedIn;
     document.getElementById('app-header').hidden = !loggedIn;
+    document.getElementById('btn-open-settings').hidden = !loggedIn || name === 'settings';
     Array.prototype.forEach.call(document.querySelectorAll('#tabs button'), function (b) {
       b.setAttribute('aria-selected', String(b.dataset.view === name));
     });
     if (name === 'entry' && window.ViewEntry) window.ViewEntry.onShow();
     if (name === 'list' && window.ViewList) window.ViewList.onShow();
     if (name === 'export' && window.ViewExport) window.ViewExport.onShow();
+    if (name === 'settings' && window.ViewSettings) window.ViewSettings.onShow();
     window.scrollTo(0, 0);
   }
 
@@ -217,6 +219,7 @@
     window.ViewLogin.init();
     window.ViewList.init();
     window.ViewExport.init();
+    window.ViewSettings.init();
     show('login');
 
     showVersion();

@@ -51,10 +51,10 @@
     /* month 帶了就順便回當月明細——與 cloud 分支必須同形，
        不然本機測到的登入流程跟正式環境走的不是同一條。 */
     bootstrap: function (pass, month) {
-      if (window.Config.REQUIRE_PASSCODE && pass !== window.MockData.passcode) return fail('AUTH_FAIL');
       var db = loadDB();
+      if (window.Config.REQUIRE_PASSCODE && pass !== (db.passcode || window.MockData.passcode)) return fail('AUTH_FAIL');
       var out = {
-        ok: true, settings: window.MockData.settings,
+        ok: true, settings: db.settings || window.MockData.settings,
         frequent: db.frequent, lockedMonths: db.lockedMonths
       };
       if (month) {
@@ -127,6 +127,30 @@
       saveDB(db);
       return Promise.resolve({ ok: true, lockedMonths: db.lockedMonths });
     },
+    /* 設定頁（會計）。管理通行碼 local 固定 9999（只給 e2e 與本機試玩用）。
+       與 cloud 同形：adminGet 回 {store, expenseSubjects, incomeSubjects}，adminSave 回同樣三欄。 */
+    adminGet: function (adminPass) {
+      if (adminPass !== (loadDB().adminPass || '9999')) return fail('AUTH_FAIL');
+      var db = loadDB(), s = db.settings || window.MockData.settings;
+      return Promise.resolve({ ok: true, store: s.store, expenseSubjects: s.expenseSubjects.slice(), incomeSubjects: s.incomeSubjects.slice() });
+    },
+    adminSave: function (adminPass, p) {
+      var db = loadDB();
+      if (adminPass !== (db.adminPass || '9999')) return fail('AUTH_FAIL');
+      var okList = function (a) { return Array.isArray(a) && a.length > 0 && a.every(function (x) { return typeof x === 'string' && x.trim(); }); };
+      var okPass = function (x) { return x === undefined || x === null || x === '' || (typeof x === 'string' && x.length >= 4); };
+      if ((p.expenseSubjects !== undefined && !okList(p.expenseSubjects)) ||
+          (p.incomeSubjects !== undefined && !okList(p.incomeSubjects)) ||
+          !okPass(p.newStorePass) || !okPass(p.newAdminPass)) return fail('BAD_INPUT');
+      var s = Object.assign({}, db.settings || window.MockData.settings);
+      if (p.expenseSubjects) s.expenseSubjects = p.expenseSubjects.map(function (x) { return x.trim(); });
+      if (p.incomeSubjects) s.incomeSubjects = p.incomeSubjects.map(function (x) { return x.trim(); });
+      db.settings = s;
+      if (p.newStorePass) db.passcode = p.newStorePass;
+      if (p.newAdminPass) db.adminPass = p.newAdminPass;
+      saveDB(db);
+      return Promise.resolve({ ok: true, store: s.store, expenseSubjects: s.expenseSubjects, incomeSubjects: s.incomeSubjects });
+    },
     reset: function () { try { localStorage.removeItem(MOCK_KEY); } catch (e) {} return Promise.resolve({ ok: true }); }
   };
 
@@ -180,6 +204,8 @@
     voidRow: function (pass, id, reason) { return post('void', { pass: pass, id: id, reason: reason }); },
     lock: function (pass, month) { return post('lock', { pass: pass, month: month }); },
     unlock: function (pass, month) { return post('unlock', { pass: pass, month: month }); },
+    adminGet: function (adminPass) { return post('adminGet', { adminPass: adminPass }); },
+    adminSave: function (adminPass, p) { return post('adminSave', Object.assign({ adminPass: adminPass }, p)); },
     reset: function () { return Promise.resolve({ ok: true }); }
   };
 

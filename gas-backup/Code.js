@@ -140,22 +140,31 @@ function buildSheets_(req) {
   };
 }
 
-/* 整頁覆蓋：清掉整個分頁（內容與格式）再重寫；先把格式設成純文字／數字，避免日期被轉型或 "=…" 被當公式 */
+/* 整頁覆蓋（先寫暫名分頁、全部寫成功後才刪舊分頁並改名）：中途失敗時舊的備份原封不動。
+   先把格式設成純文字／數字，避免日期被轉型或 "=…" 被當公式 */
 function writeSheets_(ss, sheets) {
-  var names = ['明細', '常用項目', '月結', '科目'];
-  for (var n = 0; n < names.length; n++) {
-    var name = names[n], matrix = sheets[name];
-    var sh = ss.getSheetByName(name) || ss.insertSheet(name);
-    sh.clear();
-    var width = matrix[0].length;
+  var names = ['明細', '常用項目', '月結', '科目'], tmps = [], i;
+  for (i = 0; i < names.length; i++) {
+    var name = names[i], matrix = sheets[name], tmpName = name + '_new';
+    var stale = ss.getSheetByName(tmpName);          // 上次中途失敗留下的
+    if (stale) ss.deleteSheet(stale);
+    var tmp = ss.insertSheet(tmpName);
     var fmts = matrix.map(function (r, ri) {
       return r.map(function (v, c) { return (ri > 0 && ((name === '明細' && NUM_COLS_[c]) || (name === '常用項目' && c === 2))) ? '#,##0.##' : '@'; });
     });
-    var range = sh.getRange(1, 1, matrix.length, width);
+    var range = tmp.getRange(1, 1, matrix.length, matrix[0].length);
     range.setNumberFormats(fmts);
     range.setValues(matrix);
-    sh.setFrozenRows(1);
+    tmp.setFrozenRows(1);
+    tmps.push(tmp);
   }
+  for (i = 0; i < names.length; i++) {                // 四個都寫成功才換
+    var old = ss.getSheetByName(names[i]);
+    if (old) ss.deleteSheet(old);
+    tmps[i].setName(names[i]);
+  }
+  var junk = ['Sheet1', '工作表1'];                    // setup() 建的空白預設分頁
+  for (i = 0; i < junk.length; i++) { var j = ss.getSheetByName(junk[i]); if (j && ss.getSheets().length > 1) ss.deleteSheet(j); }
 }
 
 /* 照片：檔名只允許 英數底線連字號＋.jpg；同名已存在就略過（冪等） */
@@ -166,7 +175,8 @@ function savePhoto_(req) {
   var fid = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
   if (!fid) return { ok: false, code: 'SERVER' };
   var folder = DriveApp.getFolderById(fid);
-  if (folder.getFilesByName(name).hasNext()) return { ok: true, data: { name: name, skipped: true } };
+  var it = folder.getFilesByName(name);
+  while (it.hasNext()) { if (!it.next().isTrashed()) return { ok: true, data: { name: name, skipped: true } }; }   // 垃圾桶裡的同名檔不算
   folder.createFile(Utilities.newBlob(Utilities.base64Decode(b64), 'image/jpeg', name));
   return { ok: true, data: { name: name, skipped: false } };
 }

@@ -30,6 +30,12 @@
    那會蓋掉 hidden 屬性預設的 display:none，讓該藏的東西藏不住。 */
 [hidden] { display: none !important; }
 
+/* 頁尾的小入口（設定）：不顯眼，不跟店長的主要按鈕搶位置 */
+.footer-links { text-align: center; padding: 6px 12px 0; }
+.link-btn { background: none; border: 0; color: var(--muted); font-size: 12px; text-decoration: underline;
+            padding: 8px 12px; font-family: inherit; cursor: pointer; }
+textarea { line-height: 1.5; resize: vertical; }
+
 /* 頁尾版本號：顯示這台裝置實際在跑的版本，過期時用品牌色提醒 */
 .app-version { text-align: center; font-size: 11px; color: var(--muted);
                padding: 14px 12px 22px; line-height: 1.6; }

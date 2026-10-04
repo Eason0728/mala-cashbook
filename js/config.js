@@ -28,6 +28,18 @@
     var m = (location.search.match(/[?&]mode=(local|cloud)\b/) || [])[1];
     if (m) config.MODE = m;
   } catch (e) { /* file:// 直開沒有 location.search */ }
+  /* ?api=<url>：只在本機開發（localhost／127.0.0.1）時，才允許用網址參數把後端換成別的位置，
+     並強制走 cloud。e2e 靠它打本機 Node server。
+     正式網域上一律忽略：否則有人傳一條帶 ?api=惡意網址 的連結，店長打進去的通行碼
+     就會被送去別人的伺服器。判斷用 location.hostname 精確比對，不用子字串。 */
+  try {
+    var host = location.hostname;
+    var a = (location.search.match(/[?&]api=([^&]+)/) || [])[1];
+    if (a && (host === 'localhost' || host === '127.0.0.1')) {
+      config.GAS_URL = decodeURIComponent(a);
+      config.MODE = 'cloud';
+    }
+  } catch (e) { /* file:// 或網址壞掉就當沒帶 */ }
   // 還沒部署後端時自動退回 local，本機開檔不會撞到空網址
   if (config.MODE === 'cloud' && !config.GAS_URL) config.MODE = 'local';
   window.Config = config;

@@ -15,7 +15,10 @@
 import json
 import os
 import re
+import socket
 import subprocess
+import tempfile
+import urllib.request
 import sys
 import time
 import zipfile
@@ -99,6 +102,7 @@ def main():
                 print('引擎：%s' % label)
                 print('━' * 72)
                 run_suite(pw, engine, label, data, exp)
+                run_cloud(pw, engine, label, data)
     finally:
         srv.terminate()
 
@@ -129,6 +133,239 @@ def targets():
     if want in ('chromium', 'webkit'):
         return [t for t in all_targets if t[1] == want]
     return all_targets
+
+
+def open_settings(page, why):
+    click(page, '#btn-open-settings', why)
+    page.wait_for_selector('#view-settings:not([hidden])')
+
+
+def unlock_settings(page, admin_pass, why='讀取設定'):
+    page.fill('#set-admin-pass', admin_pass)
+    click(page, '#btn-set-load', why)
+    wait_idle(page, '#btn-set-load')
+
+
+def run_settings(page, data):
+    """設定頁（local）：管理通行碼、科目增改、兩次確認、回記帳頁看到新科目。"""
+    click(page, '#tabs [data-view="entry"]', '回登記畫面準備開設定頁')
+    page.wait_for_selector('#view-entry:not([hidden])')
+    check('頁尾有設定入口', page.evaluate("() => !document.getElementById('btn-open-settings').hidden"))
+    open_settings(page, '頁尾進入設定頁')
+    CM.scan(page, '設定')
+    check('設定頁一進來不顯示科目（還沒打管理碼）', page.evaluate("() => document.getElementById('set-form').hidden"))
+
+    unlock_settings(page, 'x-wrong', '管理通行碼打錯')
+    check('管理通行碼打錯被擋下', '通行碼' in text(page, '#set-error'), text(page, '#set-error'))
+    check('打錯時科目表單不出現', page.evaluate("() => document.getElementById('set-form').hidden"))
+
+    unlock_settings(page, '9999', '管理通行碼正確讀取設定')
+    page.wait_for_selector('#set-form:not([hidden])')
+    CM.scan(page, '設定（已解鎖）')
+    got = [l for l in val(page, '#set-expense').split('\n') if l]
+    check('設定頁讀出目前的支出科目', got == data['expenseSubjects'], got)
+
+    new_subj = '新科目%d' % data['seed']
+    page.fill('#set-expense', val(page, '#set-expense') + '\n' + new_subj)
+    page.fill('#set-new-store', 'abcd')
+    page.fill('#set-new-store2', 'abce')
+    click(page, '#btn-set-save', '兩次通行碼不一樣被擋下')
+    page.wait_for_timeout(300)
+    check('新店長碼兩次不一致被擋下', '不一樣' in text(page, '#set-error'), text(page, '#set-error'))
+    page.fill('#set-new-store', '12')
+    page.fill('#set-new-store2', '12')
+    click(page, '#btn-set-save', '新通行碼太短被擋下')
+    page.wait_for_timeout(300)
+    check('新通行碼少於 4 碼被擋下', '4 碼' in text(page, '#set-error'), text(page, '#set-error'))
+    page.fill('#set-new-store', '')
+    page.fill('#set-new-store2', '')
+    click(page, '#btn-set-save', '儲存科目')
+    wait_idle(page, '#btn-set-save')
+    check('儲存後提示店長下次登入生效', '下次登入生效' in text(page, '#set-ok'), text(page, '#set-ok'))
+    click(page, '#btn-set-back', '設定頁回登記畫面')
+    page.wait_for_selector('#view-entry:not([hidden])')
+    opts = page.evaluate("() => [...document.querySelectorAll('#f-subject option')].map(o => o.value)")
+    check('記帳頁科目清單出現新科目', new_subj in opts, opts)
+
+
+def free_port():
+    s = socket.socket()
+    s.bind(('127.0.0.1', 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+def run_cloud(pw, engine, label, data):
+    """cloud 模式打本機 Node server（真 HTTP、真 SQLite，暫存資料目錄）。
+
+    前面那輪都是 ?mode=local 的假後端，api.js 的 cloud 分支、CORS、錯誤碼、
+    設定頁的 adminGet／adminSave 從來沒被真的走過——這輪補上。
+    """
+    global CM, ENGINE
+    CM = ClickMap()
+    ENGINE = label + '／cloud'
+    seed = data['seed']
+    store_pass, admin_pass = 'sp%d' % seed, 'ad%d' % seed
+    new_store = 'np%d' % seed
+    port = free_port()
+    api = 'http://127.0.0.1:%d/cashbook/api' % port
+    tmp = tempfile.mkdtemp(prefix='cashbook-e2e-')
+    env = dict(os.environ, PORT=str(port), DATA_DIR=tmp, ADMIN_INIT=admin_pass,
+               PUBLIC_BASE='http://127.0.0.1:%d/cashbook' % port, ALLOW_ORIGIN=BASE)
+    subprocess.check_call(
+        ['node', '-e', "const {openDb}=require('./server/db');const {setStorePass}=require('./server/auth');"
+                       "const db=openDb(process.env.DATA_DIR);setStorePass(db,process.argv[1]);db.close();", store_pass],
+        cwd=ROOT, env=env)
+    srv = subprocess.Popen(['node', 'server/index.js'], cwd=ROOT, env=env,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    browser = None
+    try:
+        up = False
+        for _ in range(50):
+            try:
+                urllib.request.urlopen('http://127.0.0.1:%d/cashbook/health' % port, timeout=1).read()
+                up = True
+                break
+            except Exception:
+                time.sleep(0.2)
+        check('本機 Node server 起得來', up)
+        if not up:
+            return
+        browser = getattr(pw, engine).launch()
+        if engine == 'webkit':
+            ctx = browser.new_context(**pw.devices['iPhone 13'])
+        else:
+            ctx = browser.new_context(viewport={'width': 420, 'height': 900})
+        page = ctx.new_page()
+        page.on('dialog', lambda d: d.accept('e2e cloud 作廢'))
+        page.goto(BASE + '/?api=' + api, wait_until='networkidle')
+        page.evaluate("() => { localStorage.clear(); }")
+        page.reload(wait_until='networkidle')
+
+        check('?api= 在 localhost 生效並走 cloud', page.evaluate("(a) => window.Config.MODE === 'cloud' && window.Config.GAS_URL === a", api))
+        check('cloud 模式不顯示本機測試橫幅', page.evaluate("() => document.getElementById('mode-banner').hidden"))
+        # 正式網域上 ?api= 一律忽略：拿 config.js 原始碼配假的 location 跑
+        guard = page.evaluate("""async () => {
+          const src = await (await fetch('js/config.js')).text();
+          const run = (host) => { const w = {}; new Function('window', 'location', src)(w,
+            { hostname: host, search: '?api=https%3A%2F%2Fevil.example%2Fx' }); return w.Config; };
+          const ok = run('localhost'), bad = run('eason0728.github.io'), tricky = run('localhost.evil.com');
+          return { ok: ok.GAS_URL, bad: bad.GAS_URL, tricky: tricky.GAS_URL };
+        }""")
+        check('正式網域與冒充網域都忽略 ?api=',
+              guard['ok'] == 'https://evil.example/x' and 'evil' not in guard['bad'] and 'evil' not in guard['tricky'], guard)
+
+        # 登入
+        page.fill('#passcode', 'wrong-pass')
+        click(page, '#btn-login', 'cloud 錯誤通行碼被擋')
+        wait_idle(page, '#btn-login')
+        check('cloud 打錯通行碼進不去', '通行碼' in text(page, '#login-error'), text(page, '#login-error'))
+        page.fill('#passcode', store_pass)
+        click(page, '#btn-login', 'cloud 正確通行碼登入')
+        page.wait_for_selector('#view-entry:not([hidden])', timeout=15000)
+        check('cloud 登入成功', True)
+
+        # 記一筆（有發票）
+        name = 'cloud測試%d' % seed
+        page.fill('#f-name', name)
+        page.fill('#f-amount', '1050')
+        click(page, '#invoice-toggle [data-inv="1"]', 'cloud 切成統一發票')
+        click(page, '#btn-submit', 'cloud 送出一筆')
+        wait_idle(page)
+        rows = rows_state(page)
+        mine = [r for r in rows if r['name'] == name]
+        check('cloud 記了一筆且只有一筆', len(mine) == 1, rows)
+        if mine:
+            r = mine[0]
+            check('cloud 稅額拆分正確（未稅 1000／稅 50）', r['net'] == 1000 and r['tax'] == 50 and r['hasInvoice'], r)
+            check('cloud 單號格式 YYYY-MM-NNN', re.match(r'^\d{4}-\d{2}-\d{3}$', r['id']) is not None, r['id'])
+        check('cloud 本月支出合計 $1,050', '$1,050' in text(page, '#summary-entry'), text(page, '#summary-entry'))
+
+        # 重整後仍在
+        page.reload(wait_until='networkidle')
+        page.wait_for_function("() => document.getElementById('sync-bar').hidden && !document.getElementById('view-entry').hidden", timeout=15000)
+        check('cloud 重整後資料還在', len([r for r in rows_state(page) if r['name'] == name]) == 1, rows_state(page))
+
+        # 作廢
+        click(page, '#tabs [data-view="list"]', 'cloud 切到清單')
+        page.wait_for_selector('#view-list:not([hidden])')
+        page.click('#entry-list .entry >> nth=0')
+        page.wait_for_timeout(250)
+        click(page, '#entry-list [data-act="void"]', 'cloud 作廢一筆')
+        page.wait_for_timeout(1500)
+        st = [r for r in rows_state(page) if r['name'] == name]
+        check('cloud 作廢後狀態＝作廢且留痕', len(st) == 1 and st[0]['status'] == '作廢' and st[0].get('voidReason') == 'e2e cloud 作廢', st)
+        check('cloud 作廢後合計歸零', '$0' in text(page, '#summary-list'), text(page, '#summary-list'))
+
+        # 設定頁：改科目
+        click(page, '#tabs [data-view="entry"]', 'cloud 回登記畫面')
+        open_settings(page, 'cloud 進設定頁')
+        unlock_settings(page, 'nope-nope', 'cloud 管理碼打錯')
+        check('cloud 管理通行碼打錯被擋下', '通行碼' in text(page, '#set-error'), text(page, '#set-error'))
+        unlock_settings(page, admin_pass, 'cloud 管理碼正確')
+        page.wait_for_selector('#set-form:not([hidden])')
+        new_subj = '雲端新科目%d' % seed
+        page.fill('#set-expense', val(page, '#set-expense') + '\n' + new_subj)
+        click(page, '#btn-set-save', 'cloud 儲存科目')
+        wait_idle(page, '#btn-set-save')
+        check('cloud 儲存科目成功', '下次登入生效' in text(page, '#set-ok'), text(page, '#set-ok') + text(page, '#set-error'))
+        click(page, '#btn-set-back', 'cloud 設定頁回登記')
+        opts = page.evaluate("() => [...document.querySelectorAll('#f-subject option')].map(o => o.value)")
+        check('cloud 記帳頁出現新科目', new_subj in opts, opts)
+        page.reload(wait_until='networkidle')
+        page.wait_for_selector('#view-entry:not([hidden])', timeout=15000)
+        page.wait_for_function("() => document.getElementById('sync-bar').hidden", timeout=15000)
+        opts = page.evaluate("() => [...document.querySelectorAll('#f-subject option')].map(o => o.value)")
+        check('cloud 重整後新科目還在（存在後端）', new_subj in opts, opts)
+
+        # 鎖定月：拒寫
+        click(page, '#tabs [data-view="export"]', 'cloud 切到匯出頁')
+        click(page, '#btn-lock', 'cloud 鎖定當月')
+        page.wait_for_timeout(1200)
+        check('cloud 鎖定狀態有顯示', '已鎖定' in text(page, '#lock-state'), text(page, '#lock-state'))
+        blocked = page.evaluate("""async () => {
+          try { await window.Api.create(window.App.State.pass,
+            { date: window.App.State.month + '-10', kind: '支出', subject: '雜支',
+              name: 'e2e 鎖定後', amount: 100, hasInvoice: false }); return 'created'; }
+          catch (e) { return e.message; } }""")
+        check('cloud 鎖定月後端擋下新增', blocked == 'LOCKED', blocked)
+
+        # 改店長碼 → 舊碼失效
+        open_settings(page, 'cloud 再進設定頁')
+        unlock_settings(page, admin_pass, 'cloud 管理碼再讀取')
+        page.wait_for_selector('#set-form:not([hidden])')
+        page.fill('#set-new-store', new_store)
+        page.fill('#set-new-store2', new_store)
+        click(page, '#btn-set-save', 'cloud 儲存新店長碼')
+        wait_idle(page, '#btn-set-save')
+        check('cloud 換店長碼成功', '已儲存' in text(page, '#set-ok'), text(page, '#set-ok') + text(page, '#set-error'))
+        check('這台裝置記的通行碼同步換成新的',
+              page.evaluate("() => localStorage.getItem('cashbook_pass_v1')") == new_store)
+        old = page.evaluate("""async (p) => { try { await window.Api.bootstrap(p); return 'ok'; } catch (e) { return e.message; } }""", store_pass)
+        check('cloud 舊店長碼登入失敗', old == 'AUTH_FAIL', old)
+        page.evaluate("() => localStorage.clear()")
+        page.reload(wait_until='networkidle')
+        page.fill('#passcode', store_pass)
+        click(page, '#btn-login', 'cloud 用舊碼登入')
+        wait_idle(page, '#btn-login')
+        check('cloud 舊碼在登入畫面被擋下', '通行碼' in text(page, '#login-error')
+              and page.evaluate("() => !document.getElementById('view-login').hidden"), text(page, '#login-error'))
+        page.fill('#passcode', new_store)
+        click(page, '#btn-login', 'cloud 用新碼登入')
+        page.wait_for_selector('#view-entry:not([hidden])', timeout=15000)
+        check('cloud 新店長碼登入成功', True)
+    finally:
+        if browser:
+            browser.close()
+        srv.terminate()
+        try:
+            srv.wait(timeout=5)
+        except Exception:
+            srv.kill()
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+        ENGINE = ''
 
 
 def run_suite(pw, engine, label, data, exp):
@@ -178,6 +415,7 @@ def run_suite(pw, engine, label, data, exp):
             run_timeout_recovery(page, data)
             run_version_badge(page)
             run_snapshot_boot(page)
+            run_settings(page, data)
 
             report(page)
     finally:

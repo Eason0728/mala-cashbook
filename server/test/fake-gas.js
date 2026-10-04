@@ -10,8 +10,9 @@ function defaultData() {
     lockedMonths: ['2026-09'],
     rows: [
       { id: '2026-09-001', store: '新竹光復', date: '2026-09-03', kind: '支出', subject: '食材', name: 1234, amount: 1050, hasInvoice: true, net: 1000, tax: 50, seq: 1, photo: 'https://old.example/p1.jpg', author: '店長', createdAt: '2026-09-03T10:00:00+08:00', status: '正常', voidedAt: '', voidReason: '' },
-      { id: '2026-09-002', store: '新竹光復', date: '2026-09-04', kind: '收入', subject: '回收收入', name: '紙箱', amount: 300, hasInvoice: false, net: 300, tax: 0, seq: 1, photo: '', author: '店長', createdAt: '2026-09-04T10:00:00+08:00', status: '正常', voidedAt: '', voidReason: '' },
-      { id: '2026-09-003', store: '新竹光復', date: '2026-09-05', kind: '支出', subject: '雜支', name: '膠帶', amount: 99, hasInvoice: false, net: 99, tax: 0, seq: 2, photo: '', author: '店長', createdAt: '2026-09-05T10:00:00+08:00', status: '作廢', voidedAt: '2026-09-05T11:00:00+08:00', voidReason: '記錯' },
+      { id: '2026-09-002', store: '新竹光復', date: '2026-09-04', kind: '收入', subject: '回收收入', name: '紙箱', amount: 300, hasInvoice: false, net: 300, tax: 0, seq: 1, photo: '', author: '店長', createdAt: '2026-09-04T02:00:00.000Z', status: '正常', voidedAt: '', voidReason: '' },
+      { id: '2026-09-003', store: '新竹光復', date: '2026-09-05', kind: '支出', subject: '雜支', name: '膠帶', amount: 99, hasInvoice: false, net: 99, tax: 0, seq: 2, photo: '', author: '店長', createdAt: '2026-09-05T10:00:00+08:00', status: '作廢', voidedAt: '2026-09-05T03:00:00.000Z', voidReason: '記錯' },
+      { id: '2026-03-001', store: '新竹光復', date: '2026-03-02', kind: '支出', subject: '食材', name: '舊資料', amount: 70, hasInvoice: false, net: 70, tax: 0, seq: 1, photo: '', author: '店長', createdAt: '2026-03-02T10:00:00+08:00', status: '正常', voidedAt: '', voidReason: '' },
       { id: '2026-10-001', store: '新竹光復', date: '2026-10-01', kind: '支出', subject: '食材', name: '豆皮', amount: 500, hasInvoice: false, net: 500, tax: 0, seq: 1, photo: '', author: '店長', createdAt: '2026-10-01T10:00:00+08:00', status: '正常', voidedAt: '', voidReason: '' }
     ]
   };
