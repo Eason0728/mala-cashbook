@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 麻的小辛辣｜現金收支登記 — 伺服器本體（埠 8795，當掉自動重起）。路線 D＝LaunchDaemon（/Library/LaunchDaemons，開機即啟動；
+     安裝時用 plutil 在最外層加 UserName 以部署帳號身分執行，與電子佈告欄、貨單同一條路線）。
+     範本：__NODE__＝node 絕對路徑（Node 24＋，node:sqlite 需要；~/.local/node/bin/node 展開後）、__REPO__＝repo 絕對路徑（~/mala-cashbook 展開後）、
+     __DATA_DIR__＝資料夾（~/mala-cashbook-data 展開後）。
+     祕密不寫在這裡：ADMIN_INIT／PNL_KEY／BACKUP_URL／BACKUP_KEY／PUBLIC_BASE 放 __REPO__/server/.env（PUBLIC_BASE 沒設 server 不啟動）。
+     __DATA_DIR__/logs 要先建好（launchd 開不了 log 檔就不會啟動）。實際安裝步驟見 server/DEPLOY.md。 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.mala.cashbook</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__REPO__/server/index.js</string>
+  </array>
+  <key>WorkingDirectory</key><string>__REPO__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DATA_DIR</key><string>__DATA_DIR__</string>
+    <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>__DATA_DIR__/logs/server.log</string>
+  <key>StandardErrorPath</key><string>__DATA_DIR__/logs/server.err.log</string>
+</dict>
+</plist>

@@ -142,3 +142,20 @@ test('migrate：amount 違規 → exit 1 列出；文字超長 → 警告照搬�
     db.close();
   } finally { await g.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('migrate：掃描範圍到本月＋12 個月，2026-12 與本月＋11（2027-09）的資料都搬、比對全過', async () => {
+  const g = await fake.start(); const dir = tmp();
+  try {
+    const mk = (id, date, seq) => Object.assign({}, g.data.rows[3], { id, date, seq, createdAt: date + 'T10:00:00+08:00' });
+    g.data.rows.push(mk('2026-12-001', '2026-12-05', 1), mk('2027-09-001', '2027-09-30', 1), mk('2027-11-001', '2027-11-01', 1));
+    const r = await run(g, dir);
+    assert.strictEqual(r.code, 0, r.text);
+    assert.match(r.text, /掃描範圍：2026-01～2027-10/);
+    assert.match(r.text, /2026-12 .*OK/); assert.match(r.text, /2027-09 .*OK/);
+    assert.ok(!/2027-11/.test(r.text.replace(/掃描範圍.*/, '')), '超出範圍的月份不搬');
+    const db = openDb(dir, NOW);
+    assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM rows WHERE id IN ('2026-12-001','2027-09-001')").get().c, 2);
+    assert.strictEqual(db.prepare("SELECT COUNT(*) c FROM rows WHERE id = '2027-11-001'").get().c, 0);
+    db.close();
+  } finally { await g.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

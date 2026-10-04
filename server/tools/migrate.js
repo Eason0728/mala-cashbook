@@ -164,11 +164,13 @@ async function main(deps) {
   const retryMs = env.RETRY_MS !== undefined ? Number(env.RETRY_MS) : 3000;
   const thisMonth = taipeiStamp(now()).slice(0, 7);
   const [ty0, tm0] = thisMonth.split('-').map(Number);
-  const nextMonth = tm0 === 12 ? (ty0 + 1) + '-01' : ty0 + '-' + ('0' + (tm0 + 1)).slice(-2);
+  const endIdx = ty0 * 12 + (tm0 - 1) + 12;   // 本月＋12 個月
+  const nextMonth = Math.floor(endIdx / 12) + '-' + ('0' + ((endIdx % 12) + 1)).slice(-2);
   const to = opts.to || nextMonth;
   const months = monthsBetween(opts.from, to);
   if (!months.length) { out('錯誤：--from 晚於掃描終點'); return 1; }
 
+  out(`掃描範圍：${months[0]}～${months[months.length - 1]}（共 ${months.length} 個月，空月份略過）`);
   let db = null;
   try {
     // 1. 讀舊端：先 bootstrap，再逐月 list（空月份略過）
@@ -253,4 +255,4 @@ async function main(deps) {
 }
 
 if (require.main === module) main().then((c) => process.exit(c));
-module.exports = { main, parseArgs, monthsBetween, callOld };
+module.exports = { main, parseArgs, monthsBetween, callOld, normalizeRow, canonOld, canonDb, FIELDS };
