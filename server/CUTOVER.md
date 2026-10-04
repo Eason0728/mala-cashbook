@@ -130,7 +130,7 @@ cd ~/mala-cashbook; export PATH="$HOME/.local/node/bin:$PATH"; NODE="$HOME/.loca
 cd ~/mala-cashbook; export PATH="$HOME/.local/node/bin:$PATH"
 git pull --ff-only                                          # 確認程式是最新（此時 js/config.js 仍是舊網址）
 export OLD_GAS_URL="$(sed -n "s/^ *GAS_URL: '\([^']*\)'.*/\1/p" js/config.js)"
-read -rs "OLD_PASS?舊店長通行碼（不回顯）：" OLD_PASS; echo; export OLD_PASS
+read -rs "OLD_PASS?舊店長通行碼（不回顯）："; echo; export OLD_PASS
 node server/tools/migrate.js --dry-run                      # ① 只讀不寫
 ```
 
@@ -235,7 +235,7 @@ grep -E "api:(bootstrap|list|create|update|void|adminGet) " "$DATA/logs/server.l
 2. **實打一次**：上面的「立即拉取連接器」就是實打；也可請 Eason 在自己的終端機另外確認：
 
 ```sh
-read -rs "K?PNL_KEY（不回顯）：" K; echo
+read -rs "K?PNL_KEY（不回顯）："; echo
 curl -s -X POST "https://<funnel 主機>/cashbook/api" -H 'Content-Type: text/plain' -d "{\"action\":\"pnlSummary\",\"key\":\"$K\",\"month\":\"$(date +%Y-%m)\"}" | python3 -m json.tool | head -20; unset K
 ```
 

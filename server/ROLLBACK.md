@@ -51,7 +51,7 @@ ls -l "$DATA/READONLY"
 **驗證**：`READONLY` 之後，所有寫入回 `READONLY`，讀取照常。請 **Eason 在自己的終端機**確認（通行碼只在他自己的終端機輸入）：
 
 ```sh
-read -rs "P?店長通行碼（不回顯）：" P; echo
+read -rs "P?店長通行碼（不回顯）："; echo
 curl -s -X POST http://127.0.0.1:8795/cashbook/api -H 'Content-Type: text/plain' -d "{\"action\":\"void\",\"pass\":\"$P\",\"id\":\"0000-00-000\"}"; echo     # 要回 {"ok":false,"error":"READONLY"}
 curl -s -X POST http://127.0.0.1:8795/cashbook/api -H 'Content-Type: text/plain' -d "{\"action\":\"bootstrap\",\"pass\":\"$P\"}" | head -c 80; echo                # 要回 {"ok":true,…（讀取照常）
 unset P
@@ -94,8 +94,8 @@ unset P
 ```sh
 cd ~/mala-cashbook; export PATH="$HOME/.local/node/bin:$PATH"
 export OLD_GAS_URL="<舊 Apps Script 網址，取自密碼管理器>"
-read -rs "ROLLBACK_KEY?ROLLBACK_KEY（不回顯）：" ROLLBACK_KEY; echo; export ROLLBACK_KEY
-read -rs "OLD_PASS?舊店長通行碼（不回顯）：" OLD_PASS; echo; export OLD_PASS
+read -rs "ROLLBACK_KEY?ROLLBACK_KEY（不回顯）："; echo; export ROLLBACK_KEY
+read -rs "OLD_PASS?舊店長通行碼（不回顯）："; echo; export OLD_PASS
 node server/tools/rollback-export.js --dry-run --compare-old
 ```
 

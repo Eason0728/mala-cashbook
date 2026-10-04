@@ -63,9 +63,9 @@ echo "== Tailscale"; "$TS" version | head -1; "$TS" status | head -3
 echo "== Node（需要 ≥ 24，node:sqlite）"; "$NODE" -v 2>/dev/null && "$NODE" -e "require('node:sqlite'); console.log('node:sqlite OK')" || echo "（~/.local/node 尚未安裝或不是 24）"
 echo "== git／repo"; git --version | head -1; git -C "$REPO" log --oneline -1 2>/dev/null && git -C "$REPO" branch --show-current || echo "（尚未 clone）"
 echo "== 埠 $PORT／8793／8794"; lsof -nP -iTCP:$PORT -sTCP:LISTEN || echo "（$PORT 沒人在聽，正常）"; lsof -nP -iTCP:8793 -sTCP:LISTEN | head -2; lsof -nP -iTCP:8794 -sTCP:LISTEN | head -2
-echo "== 既有 job"; ls /Library/LaunchDaemons/com.dzy.* /Library/LaunchDaemons/com.mala.* 2>/dev/null
-echo "== 本系統既有 job／資料"; ls /Library/LaunchDaemons/com.mala.cashbook* ~/Library/LaunchAgents/com.mala.cashbook* 2>/dev/null || echo "（無）"; ls -d "$DATA" 2>/dev/null || echo "（無 $DATA）"
-echo "== Funnel／Serve 現況（網址已遮蔽）"; "$TS" funnel status 2>&1 | sed -E 's#https?://[^ /]+#https://<funnel 主機>#g'; "$TS" serve status 2>&1 | sed -E 's#https?://[^ /]+#https://<funnel 主機>#g'
+echo "== 既有 job"; ls /Library/LaunchDaemons/ | grep -E '^com\.(dzy|mala)\.'
+echo "== 本系統既有 job／資料"; { ls /Library/LaunchDaemons/; ls ~/Library/LaunchAgents/; } 2>/dev/null | grep "^com\.mala\.cashbook" || echo "（無）"; ls -d "$DATA" 2>/dev/null || echo "（無 $DATA）"
+echo "== Funnel／Serve 現況（網址已遮蔽）"; "$TS" funnel status 2>&1 | sed -E 's#[a-z0-9-]+\.tail[0-9a-z]+\.ts\.net#<funnel 主機>#g'; "$TS" serve status 2>&1 | sed -E 's#[a-z0-9-]+\.tail[0-9a-z]+\.ts\.net#<funnel 主機>#g'
 echo "== 既有服務基準"
 curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print("bulletin", {k: d.get(k) for k in ("ok","level")})'
 curl -s --max-time 10 http://127.0.0.1:8794/purchase/api/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print("purchase", {k: d.get(k) for k in ("ok","status")})'
@@ -97,7 +97,7 @@ mkdir -p "$DATA/logs" && chmod 700 "$DATA"
   echo "環境：macOS $(sw_vers -productVersion)／$(uname -m)／Node $("$NODE" -v 2>/dev/null)／建立 $(date '+%F %T %Z')"
   echo "第 0 步 既有服務基準：$(curl -s --max-time 10 http://127.0.0.1:8793/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print("bulletin", {k: d.get(k) for k in ("ok","level")})')／$(curl -s --max-time 10 http://127.0.0.1:8794/purchase/api/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print("purchase", {k: d.get(k) for k in ("ok","status")})')／$(F=$("$TS" funnel status 2>&1); echo "funnel_on=$(echo "$F" | grep -c '(Funnel on)') root_8793=$(echo "$F" | grep -cE '^\|-- +/ +proxy +http://(127\.0\.0\.1|localhost):8793$') purchase_8794=$(echo "$F" | grep -cE '^\|-- +/purchase +proxy +http://(127\.0\.0\.1|localhost):8794/purchase$')")"
 } >> "$DATA/logs/deploy-evidence.txt"
-{ "$TS" funnel status 2>&1; echo ---; "$TS" serve status 2>&1; } | sed -E 's#https?://[^ /]+#https://<funnel 主機>#g' > "$DATA/logs/funnel-before.txt"
+{ "$TS" funnel status 2>&1; echo ---; "$TS" serve status 2>&1; } | sed -E 's#[a-z0-9-]+\.tail[0-9a-z]+\.ts\.net#<funnel 主機>#g' > "$DATA/logs/funnel-before.txt"
 cat "$DATA/logs/funnel-before.txt"
 ```
 
@@ -172,9 +172,9 @@ K=$(openssl rand -hex 32); sed -i '' '/^BACKUP_KEY=/d' "$E"; printf 'BACKUP_KEY=
 
 ```sh
 # ② ADMIN_INIT：Eason 自己想一組管理通行碼（至少 4 碼；會計進「設定」頁用）。輸入時不回顯
-E="$HOME/mala-cashbook/server/.env"; read -rs "A?管理通行碼初始值：" A; echo; sed -i '' '/^ADMIN_INIT=/d' "$E"; printf 'ADMIN_INIT=%s\n' "$A" >> "$E"; unset A; grep -c '^ADMIN_INIT=.\{4,\}$' "$E"
+E="$HOME/mala-cashbook/server/.env"; read -rs "A?管理通行碼初始值："; echo; sed -i '' '/^ADMIN_INIT=/d' "$E"; printf 'ADMIN_INIT=%s\n' "$A" >> "$E"; unset A; grep -c '^ADMIN_INIT=.\{4,\}$' "$E"
 # ③ PNL_KEY：沿用舊 Apps Script 指令碼屬性 PNL_KEY 的同一把（損益連接器那邊的金鑰就不用換，只換網址）。輸入時不回顯
-E="$HOME/mala-cashbook/server/.env"; read -rs "P?PNL_KEY（與舊 Apps Script 同一把）：" P; echo; sed -i '' '/^PNL_KEY=/d' "$E"; printf 'PNL_KEY=%s\n' "$P" >> "$E"; unset P; grep -c '^PNL_KEY=.\{16,\}$' "$E"
+E="$HOME/mala-cashbook/server/.env"; read -rs "P?PNL_KEY（與舊 Apps Script 同一把）："; echo; sed -i '' '/^PNL_KEY=/d' "$E"; printf 'PNL_KEY=%s\n' "$P" >> "$E"; unset P; grep -c '^PNL_KEY=.\{16,\}$' "$E"
 ```
 
 （zsh 的 `read -rs "A?提示："` 語法；兩行都要印 `1`。）**`ADMIN_INIT` 只在資料庫還沒有管理碼時寫入一次**，之後改管理通行碼要到設定頁改，不是改這行。
@@ -321,7 +321,7 @@ cat "$DATA/logs/funnel-before.txt"                           # 第 0 步存的�
 
 - **目標網址要帶 `/cashbook`**：Tailscale 轉送時會把掛載路徑剝掉，不補回去的話，伺服器收到的是 `/health`（回 404）而不是 `/cashbook/health`。
 - 這一行**只新增 `/cashbook` 這一條**。CLI 印出同意連結並一直等：把連結交給 Eason；非 0 結束碼：**停**，把輸出（先遮掉網址）交給 Eason。
-- **立刻**對照（不要先做別的）：印第 0 步同一組「既有服務基準」六個值，再印 `"$TS" funnel status 2>&1 | sed -E 's#https?://[^ /]+#https://<funnel 主機>#g'`。
+- **立刻**對照（不要先做別的）：印第 0 步同一組「既有服務基準」六個值，再印 `"$TS" funnel status 2>&1 | sed -E 's#[a-z0-9-]+\.tail[0-9a-z]+\.ts\.net#<funnel 主機>#g'`。
 
 期望：
 1. 六個既有服務基準值與第 0 步**完全一致**（特別是 `funnel_on=1 root_8793=1 purchase_8794=1`）；
@@ -497,7 +497,7 @@ export PATH="$HOME/.local/node/bin:$PATH"; DATA="$HOME/mala-cashbook-data"
 TS=$( [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ] && echo /Applications/Tailscale.app/Contents/MacOS/Tailscale || command -v tailscale )
 # ① 先拆 Funnel 路徑：有 --yes 才由 Claude 執行；沒有 --yes 請 Eason 在終端機手動執行
 "$TS" funnel --https=443 --set-path /cashbook --yes off                              # 沒有 --yes 時改由 Eason：tailscale funnel --https=443 --set-path /cashbook off
-"$TS" funnel status 2>&1 | sed -E 's#https?://[^ /]+#https://<funnel 主機>#g'          # 要與 funnel-before.txt 相同
+"$TS" funnel status 2>&1 | sed -E 's#[a-z0-9-]+\.tail[0-9a-z]+\.ts\.net#<funnel 主機>#g'          # 要與 funnel-before.txt 相同
 # ② Eason（sudo）：for j in com.mala.cashbook com.mala.cashbook.backup; do sudo launchctl bootout system/$j; sudo rm /Library/LaunchDaemons/$j.plist; done
 # ③ 再印「既有服務基準」六個值，要與第 0 步相同
 ```
