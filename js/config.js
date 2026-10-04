@@ -1,6 +1,6 @@
 /* 設定：MODE 切換 mock 本機資料／真 Apps Script 後端（慣例沿用稽核系統 mala-audit）
  * local：js/paper-2026-09.js 的紙本種子資料＋js/api.js 的 mock 分支，通行碼 1234
- * cloud：呼叫 GAS_URL（真試算表；通行碼讀試算表「設定」分頁）
+ * cloud：呼叫 GAS_URL（Mac mini 後端；科目與通行碼在 app 的「設定」頁改）
  * 網址加 ?mode=local 可暫時切成假資料模式，不會碰到真試算表——
  * 這也是自動化測試不需要知道正式通行碼的原因。
  */
@@ -9,11 +9,10 @@
   var config = {
     MODE: 'cloud',
     STORE: '新竹光復',
-    // 2026-09-08 部署（部署 ID AKfycbyelA64…，之後一律 redeploy 同一個 ID）。
-    // 這串網址等同鑰匙，所以通行碼是第二道門，且只存在試算表「設定」分頁。
-    // 切換到 Mac mini 時改成 https://<funnel 主機>/cashbook/api，步驟見 server/CUTOVER.md
-    GAS_URL: 'https://script.google.com/macros/s/AKfycbyelA64WCKft6WhiMZJjtl1egZV3jFUt0eT_MP2KfkkBA7ry9vJEuylIaqC7p_Bk3p56w/exec',
-    // 通行碼本身只存試算表「設定」分頁，不寫進程式碼、不進 GitHub。
+    // 2026-10-05 起後端在公司 Mac mini（Tailscale Funnel 的 /cashbook 路徑）；
+    // 舊 Apps Script 已凍結（FROZEN），回退見 server/ROLLBACK.md。
+    // 店長通行碼與管理通行碼只以雜湊存在 Mac mini 的資料庫，不寫進程式碼、不進 GitHub。
+    GAS_URL: 'https://dingzhaoyuandemac-mini.tailc27c34.ts.net/cashbook/api',
     REQUIRE_PASSCODE: true,
     // 送出逾時：超過就中止並提示重試，不自動重送（避免記成兩筆）
     /* 匯出 2026-09-09 改成瀏覽器就地產檔，不再打後端，所以這裡只剩
