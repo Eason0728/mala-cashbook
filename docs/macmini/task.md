@@ -6,7 +6,7 @@
   驗收：`node --test server/test/db.test.js`：建表冪等（開兩次不壞）、transaction 失敗會回滾。
 - **T2 八個動作**（`server/actions.js`）：bootstrap/list/create/update/void/lock/unlock/pnlSummary，行為逐條對照 `apps-script/Code.gs`；clientToken 存 `create_tokens`；照片寫檔失敗回 `warning:'PHOTO_FAIL'` 但帳照記。
   驗收：`server/test/actions.test.js` 覆蓋：稅額（有/無發票）、單號與收據編號遞增、鎖定月拒寫、作廢留痕、重送同 token 回 `duplicate:true` 且 frequent 次數不變、list 只回當月、pnlSummary 金鑰錯回 `AUTH`、作廢不計入合計。
-- **T3 auth＋admin**（`server/auth.js`）：scrypt 雜湊、等長比對、10 分 20 次鎖 10 分（依來源 IP，取 `X-Forwarded-For` 第一段）、`ADMIN_INIT` 首次寫入、adminGet/adminSave。
+- **T3 auth＋admin**（`server/auth.js`）：scrypt 雜湊、等長比對、10 分 20 次鎖 10 分（依來源 IP：socket 是 loopback 才信 `X-Forwarded-For` 且取最後一段（P1 審查 #3-4 修正））、`ADMIN_INIT` 首次寫入、adminGet/adminSave。
   驗收：測試錯 20 次後第 21 次回 `AUTH_LOCKED`；adminSave 改店長碼後舊碼 `AUTH_FAIL`；回應永不含任何通行碼。
 - **T4 http＋照片＋health**（`server/index.js`、`server/health.js`）：路由、CORS、8MB 上限、照片服務（token 格式不符一律 404）、READONLY 檔、health 燈號（spec §5）、access log 每筆記 action 與耗時（不記通行碼與 body）。
   驗收：`server/test/http.test.js` 起真 server 打：OPTIONS/CORS、超大 body 413→ok:false、`/cashbook/photo/../../x` 404、health 回 level。
@@ -26,5 +26,5 @@
   驗收：兩引擎、三個種子全綠。
 
 ## P4 部署
-- **T10**：`server/launchd/com.mala.cashbook.plist`、`com.mala.cashbook.backup.plist`、`server/DEPLOY.md`、`server/CUTOVER.md`、`server/ROLLBACK.md`、`server/DEPLOY-prompt.txt`。照抄貨單／佈告欄附錄 A 路線；Funnel 用 `tailscale funnel --set-path /cashbook`。
+- **T10**：`server/launchd/com.mala.cashbook.plist`、`com.mala.cashbook.backup.plist`、`server/DEPLOY.md`、`server/CUTOVER.md`、`server/ROLLBACK.md`、`server/DEPLOY-prompt.txt`。照抄貨單／佈告欄附錄 A 路線；Funnel 用 `tailscale funnel --set-path /cashbook`。部署時以 `LOG_XFF=1` 實測 Funnel 有沒有送 X-Forwarded-For（沒送＝全店共用一個失敗計數，#3-10）；切換步驟加「舊 clientToken 不帶過來：凍結前確認店長沒有逾時中的送出」（#4-5）。
 - **T11**：`~/mala-fortune/tools/gas-watchdog/Code.js` 加 `cashbookCore_`（照 `bulletinCore_`），離線測試。
