@@ -53,6 +53,13 @@ try:
 
         p.click('#tabs [data-view="export"]'); p.wait_for_timeout(700)
         p.screenshot(path=os.path.join(OUT, 's7-export.png'))
+
+        # 設定頁（會計）：頁尾入口 → 解鎖前 → 輸入管理碼 → 解鎖後
+        p.click('#btn-open-settings'); p.wait_for_selector('#view-settings:not([hidden])'); p.wait_for_timeout(500)
+        p.screenshot(path=os.path.join(OUT, 's8-settings-lock.png'))
+        p.fill('#set-admin-pass', '9999'); p.click('#btn-set-load')
+        p.wait_for_selector('#set-form:not([hidden])'); p.wait_for_timeout(800)
+        p.screenshot(path=os.path.join(OUT, 's9-settings-form.png'), full_page=True)
         b.close()
 finally:
     srv.terminate()
