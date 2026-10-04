@@ -3,7 +3,7 @@
 - 分級：完整
 - 分級依據：排程=是 發訊息=否 外部後台=是 被看到=是 寫正式資料=是
 - 現在在：⑤（①｜②｜③-需求｜③-規格｜③-方案｜④｜⑤｜結案）
-- 等 Eason：手機實測一輪、損益連接器改網址、回報 ADMIN_INIT／PNL_KEY 兩個 grep、請 mini 手動跑一次備份
+- 等 Eason：請 mini 手動跑一次備份（確認備份試算表有 95 筆）、圖解分享版本移到最新
 
 ## ① 查（2026-10-04）
 - 既有系統：mala-cashbook（skill 同名），後端 GAS @11、帳號 madesiaosinla、試算表 10TS7SY2…
@@ -26,6 +26,7 @@
 | 2026-10-05 | 切換 | FROZEN=1 | Eason 瀏覽器驗證 create→MOVED、bootstrap→true | 1 | 對話截圖 |
 | 2026-10-05 | 切換 | migrate | Eason 回報搬完；/cashbook/health rows=95 | 1 | 對話 |
 | 2026-10-05 | 切換 | 前端 main a31c3e1（sw v21） | Pages config.js 無 script.google.com；正式網址實測 AUTH_FAIL 639ms | 1 | 對話 |
+| 2026-10-05 | 切換 | 手機實測、損益連接器、ADMIN_INIT／PNL_KEY | Eason 回報全部正常 | 1 | 對話 |
 | 2026-10-04 | 上線 | 舊 Apps Script @12（FROZEN 未開） | 瀏覽器實測兩次 importRows 無金鑰回 AUTH、錯碼 bootstrap 回 AUTH_FAIL | 1 | 對話 |
 
 ## 落地清單
