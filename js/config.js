@@ -11,6 +11,7 @@
     STORE: '新竹光復',
     // 2026-09-08 部署（部署 ID AKfycbyelA64…，之後一律 redeploy 同一個 ID）。
     // 這串網址等同鑰匙，所以通行碼是第二道門，且只存在試算表「設定」分頁。
+    // 切換到 Mac mini 時改成 https://<funnel 主機>/cashbook/api，步驟見 server/CUTOVER.md
     GAS_URL: 'https://script.google.com/macros/s/AKfycbyelA64WCKft6WhiMZJjtl1egZV3jFUt0eT_MP2KfkkBA7ry9vJEuylIaqC7p_Bk3p56w/exec',
     // 通行碼本身只存試算表「設定」分頁，不寫進程式碼、不進 GitHub。
     REQUIRE_PASSCODE: true,

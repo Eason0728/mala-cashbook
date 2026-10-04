@@ -135,6 +135,18 @@ def targets():
     return all_targets
 
 
+def wait_btn(page, sel, label, timeout=15000):
+    """等按鈕回到原本的字（Busy.run 跑完、成功字樣收掉）。比 wait_idle 嚴：它不會在「儲存中」就放行。"""
+    page.wait_for_function(
+        "([s, l]) => { const b = document.querySelector(s); return b && !b.disabled && b.textContent.trim() === l; }",
+        arg=[sel, label], timeout=timeout)
+
+
+STORE_HAS = """(p) => { const v = [];
+  for (const st of [localStorage, sessionStorage]) for (let i = 0; i < st.length; i++) v.push(st.key(i) + '=' + st.getItem(st.key(i)));
+  return v.some(x => x.indexOf(p) >= 0); }"""
+
+
 def open_settings(page, why):
     click(page, '#btn-open-settings', why)
     page.wait_for_selector('#view-settings:not([hidden])')
@@ -143,11 +155,28 @@ def open_settings(page, why):
 def unlock_settings(page, admin_pass, why='讀取設定'):
     page.fill('#set-admin-pass', admin_pass)
     click(page, '#btn-set-load', why)
-    wait_idle(page, '#btn-set-load')
+    wait_btn(page, '#btn-set-load', '讀取設定')
 
 
 def run_settings(page, data):
     """設定頁（local）：管理通行碼、科目增改、兩次確認、回記帳頁看到新科目。"""
+    # 快照背景更新被後端明確拒絕（被鎖）時，要講白話原因，不能一律說「連不上後端」
+    page.add_init_script("""
+      if (localStorage.getItem('__e2e_locked')) {
+        document.addEventListener('DOMContentLoaded', () => {
+          window.Api.local.bootstrap = () => Promise.reject(new Error('AUTH_LOCKED'));
+        });
+      }""")
+    page.evaluate("() => localStorage.setItem('__e2e_locked', '1')")
+    page.reload(wait_until='networkidle')
+    page.wait_for_timeout(1200)
+    bar = text(page, '#sync-bar')
+    check('快照更新遇 AUTH_LOCKED 講白話原因而不是「連不上」', '鎖住' in bar and '連不上' not in bar, bar)
+    check('AUTH_LOCKED 時記住的通行碼不會被洗掉',
+          page.evaluate("() => !!localStorage.getItem('cashbook_pass_v1')"))
+    page.evaluate("() => localStorage.removeItem('__e2e_locked')")
+    page.reload(wait_until='networkidle')
+    page.wait_for_function("() => document.getElementById('sync-bar').hidden && !document.getElementById('view-entry').hidden", timeout=8000)
     click(page, '#tabs [data-view="entry"]', '回登記畫面準備開設定頁')
     page.wait_for_selector('#view-entry:not([hidden])')
     check('頁尾有設定入口', page.evaluate("() => !document.getElementById('btn-open-settings').hidden"))
@@ -166,12 +195,27 @@ def run_settings(page, data):
     check('設定頁讀出目前的支出科目', got == data['expenseSubjects'], got)
 
     new_subj = '新科目%d' % data['seed']
-    page.fill('#set-expense', val(page, '#set-expense') + '\n' + new_subj)
+    full = val(page, '#set-expense') + '\n' + new_subj
+    page.fill('#set-expense', full)
     page.fill('#set-new-store', 'abcd')
     page.fill('#set-new-store2', 'abce')
     click(page, '#btn-set-save', '兩次通行碼不一樣被擋下')
     page.wait_for_timeout(300)
     check('新店長碼兩次不一致被擋下', '不一樣' in text(page, '#set-error'), text(page, '#set-error'))
+    page.fill('#set-new-store', 'ab cd')
+    page.fill('#set-new-store2', 'ab cd')
+    click(page, '#btn-set-save', '新通行碼含空白被擋下')
+    page.wait_for_timeout(300)
+    check('新通行碼含空白被擋下', '空白' in text(page, '#set-error'), text(page, '#set-error'))
+    page.fill('#set-expense', '\n'.join('科%d' % i for i in range(101)))
+    click(page, '#btn-set-save', '科目超過 100 個被擋下')
+    page.wait_for_timeout(300)
+    check('科目超過 100 個前端先擋', '100' in text(page, '#set-error'), text(page, '#set-error'))
+    page.fill('#set-expense', '食材\n' + 'x' * 31)
+    click(page, '#btn-set-save', '科目名稱過長被擋下')
+    page.wait_for_timeout(300)
+    check('科目名稱超過 30 字前端先擋', '太長' in text(page, '#set-error'), text(page, '#set-error'))
+    page.fill('#set-expense', full)
     page.fill('#set-new-store', '12')
     page.fill('#set-new-store2', '12')
     click(page, '#btn-set-save', '新通行碼太短被擋下')
@@ -180,7 +224,7 @@ def run_settings(page, data):
     page.fill('#set-new-store', '')
     page.fill('#set-new-store2', '')
     click(page, '#btn-set-save', '儲存科目')
-    wait_idle(page, '#btn-set-save')
+    wait_btn(page, '#btn-set-save', '儲存設定')
     check('儲存後提示店長下次登入生效', '下次登入生效' in text(page, '#set-ok'), text(page, '#set-ok'))
     click(page, '#btn-set-back', '設定頁回登記畫面')
     page.wait_for_selector('#view-entry:not([hidden])')
@@ -305,10 +349,12 @@ def run_cloud(pw, engine, label, data):
         check('cloud 管理通行碼打錯被擋下', '通行碼' in text(page, '#set-error'), text(page, '#set-error'))
         unlock_settings(page, admin_pass, 'cloud 管理碼正確')
         page.wait_for_selector('#set-form:not([hidden])')
+        CM.scan(page, 'cloud 設定（已解鎖）')
+        check('管理通行碼不落地（localStorage／sessionStorage 都沒有）', not page.evaluate(STORE_HAS, admin_pass))
         new_subj = '雲端新科目%d' % seed
         page.fill('#set-expense', val(page, '#set-expense') + '\n' + new_subj)
         click(page, '#btn-set-save', 'cloud 儲存科目')
-        wait_idle(page, '#btn-set-save')
+        wait_btn(page, '#btn-set-save', '儲存設定')
         check('cloud 儲存科目成功', '下次登入生效' in text(page, '#set-ok'), text(page, '#set-ok') + text(page, '#set-error'))
         click(page, '#btn-set-back', 'cloud 設定頁回登記')
         opts = page.evaluate("() => [...document.querySelectorAll('#f-subject option')].map(o => o.value)")
@@ -318,6 +364,37 @@ def run_cloud(pw, engine, label, data):
         page.wait_for_function("() => document.getElementById('sync-bar').hidden", timeout=15000)
         opts = page.evaluate("() => [...document.querySelectorAll('#f-subject option')].map(o => o.value)")
         check('cloud 重整後新科目還在（存在後端）', new_subj in opts, opts)
+
+        check('儲存後管理通行碼仍不落地', not page.evaluate(STORE_HAS, admin_pass))
+
+        # adminSave 逾時：先查再說；寫入本身只被呼叫一次（絕不自動重送）
+        subj_a, subj_b = '逾時已存%d' % seed, '逾時未存%d' % seed
+        open_settings(page, 'cloud 進設定頁驗逾時')
+        unlock_settings(page, admin_pass, 'cloud 管理碼（驗逾時）')
+        page.wait_for_selector('#set-form:not([hidden])')
+        page.evaluate("""() => { const c = window.Api.cloud; window.__origSave = c.adminSave; window.__origGet = c.adminGet;
+            window.__saveCalls = 0;
+            c.adminSave = function (p, d) { window.__saveCalls++;
+              return window.__origSave.call(c, p, d).then(() => { throw new Error('TIMEOUT'); }); }; }""")
+        page.fill('#set-expense', val(page, '#set-expense') + '\n' + subj_a)
+        click(page, '#btn-set-save', 'cloud 儲存逾時但其實已存好')
+        wait_btn(page, '#btn-set-save', '儲存設定')
+        calls = page.evaluate("() => window.__saveCalls")
+        check('adminSave 逾時只被呼叫一次（不自動重送）', calls == 1, calls)
+        check('逾時後自動查到其實已存好並明講', '其實已經存好' in text(page, '#set-ok'), text(page, '#set-ok') + text(page, '#set-error'))
+        check('查到已存好時本機科目同步', subj_a in page.evaluate("() => window.App.State.settings.expenseSubjects"))
+        page.evaluate("""() => { const c = window.Api.cloud; window.__saveCalls = 0;
+            c.adminSave = function () { window.__saveCalls++; return Promise.reject(new Error('TIMEOUT')); };
+            c.adminGet = function () { return Promise.reject(new Error('TIMEOUT')); }; }""")
+        page.fill('#set-expense', val(page, '#set-expense') + '\n' + subj_b)
+        click(page, '#btn-set-save', 'cloud 儲存逾時且查不了')
+        wait_btn(page, '#btn-set-save', '儲存設定')
+        err = text(page, '#set-error')
+        check('查不了時說無法確認、不叫人再按一次', '無法確認' in err and '不要直接再按' in err, err)
+        check('查不了時只呼叫一次寫入', page.evaluate("() => window.__saveCalls") == 1)
+        check('查不了時不顯示成功訊息', page.evaluate("() => document.getElementById('set-ok').hidden"))
+        page.evaluate("() => { const c = window.Api.cloud; c.adminSave = window.__origSave; c.adminGet = window.__origGet; }")
+        click(page, '#btn-set-back', 'cloud 設定頁回登記（逾時測試後）')
 
         # 鎖定月：拒寫
         click(page, '#tabs [data-view="export"]', 'cloud 切到匯出頁')
@@ -338,7 +415,7 @@ def run_cloud(pw, engine, label, data):
         page.fill('#set-new-store', new_store)
         page.fill('#set-new-store2', new_store)
         click(page, '#btn-set-save', 'cloud 儲存新店長碼')
-        wait_idle(page, '#btn-set-save')
+        wait_btn(page, '#btn-set-save', '儲存設定')
         check('cloud 換店長碼成功', '已儲存' in text(page, '#set-ok'), text(page, '#set-ok') + text(page, '#set-error'))
         check('這台裝置記的通行碼同步換成新的',
               page.evaluate("() => localStorage.getItem('cashbook_pass_v1')") == new_store)
@@ -355,6 +432,30 @@ def run_cloud(pw, engine, label, data):
         click(page, '#btn-login', 'cloud 用新碼登入')
         page.wait_for_selector('#view-entry:not([hidden])', timeout=15000)
         check('cloud 新店長碼登入成功', True)
+
+        # 改管理碼 → 舊管理碼被擋、新管理碼可進
+        new_admin = 'na%d' % seed
+        open_settings(page, 'cloud 進設定頁換管理碼')
+        unlock_settings(page, admin_pass, 'cloud 管理碼（換管理碼前）')
+        page.wait_for_selector('#set-form:not([hidden])')
+        page.fill('#set-new-admin', new_admin)
+        page.fill('#set-new-admin2', new_admin)
+        click(page, '#btn-set-save', 'cloud 儲存新管理碼')
+        wait_btn(page, '#btn-set-save', '儲存設定')
+        check('cloud 換管理碼成功', '已儲存' in text(page, '#set-ok'), text(page, '#set-ok') + text(page, '#set-error'))
+        check('換管理碼後新舊管理碼都不落地',
+              not page.evaluate(STORE_HAS, new_admin) and not page.evaluate(STORE_HAS, admin_pass))
+        click(page, '#btn-set-back', 'cloud 設定頁回登記（換管理碼後）')
+        open_settings(page, 'cloud 再進設定頁驗舊管理碼')
+        unlock_settings(page, admin_pass, 'cloud 舊管理碼')
+        check('cloud 舊管理碼被擋下', '通行碼' in text(page, '#set-error')
+              and page.evaluate("() => document.getElementById('set-form').hidden"), text(page, '#set-error'))
+        unlock_settings(page, new_admin, 'cloud 新管理碼')
+        page.wait_for_selector('#set-form:not([hidden])')
+        check('cloud 新管理碼可進設定', True)
+        click(page, '#btn-set-back', 'cloud 設定頁回登記（收尾）')
+        rep = CM.report()
+        check('cloud 輪設定頁按鈕都點過', not rep['missed'], json.dumps(rep['missed'], ensure_ascii=False))
     finally:
         if browser:
             browser.close()

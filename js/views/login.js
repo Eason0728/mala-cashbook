@@ -36,7 +36,13 @@
           setError(text);
         } else if (onSnapshot) {
           // 舊資料留在畫面上，但要講明白它是舊的、而且現在記不了帳
-          window.App.syncBar('連不上後端，看到的是上次的資料，現在記的帳送不出去', true);
+          /* 只有真的沒拿到回應（逾時、回了壞資料）才說「連不上」；
+             被鎖、維護中、系統已搬家這些是後端明確回話，講白話原因，不然店長會以為是網路 */
+          if (code === 'TIMEOUT' || code === 'BAD_RESPONSE' || !code) {
+            window.App.syncBar('連不上後端，看到的是上次的資料，現在記的帳送不出去', true);
+          } else {
+            window.App.syncBar(text + '（畫面是上次的資料）', true);
+          }
         } else {
           setError(text);
         }

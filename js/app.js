@@ -29,6 +29,7 @@
     var loggedIn = name !== 'login';
     document.getElementById('tabs').hidden = !loggedIn;
     document.getElementById('app-header').hidden = !loggedIn;
+    if (name !== 'settings' && window.ViewSettings) window.ViewSettings.clear();
     document.getElementById('btn-open-settings').hidden = !loggedIn || name === 'settings';
     Array.prototype.forEach.call(document.querySelectorAll('#tabs button'), function (b) {
       b.setAttribute('aria-selected', String(b.dataset.view === name));
