@@ -26,6 +26,7 @@ function doPost(e) {
   try {
     var req = JSON.parse(e.postData.contents);
     if (req.action === 'pnlSummary') return pnlSummaryResponse(req);  // 損益系統唯讀端點：獨立金鑰，分流在 assertPass 之前
+    if (req.action === 'importRows') return importRowsResponse(req);  // 回退用：獨立金鑰 ROLLBACK_KEY，分流在 assertPass 之前；凍結時也允許
     assertPass(req.pass);
     var fn = {
       bootstrap: apiBootstrap, list: apiList, create: apiCreate, update: apiUpdate,
@@ -37,6 +38,9 @@ function doPost(e) {
        唯讀動作（bootstrap/list/export）不上鎖，登入與查詢速度不受影響。 */
     var MUTATING = { create: 1, update: 1, 'void': 1, lock: 1, unlock: 1 };
     if (MUTATING[req.action]) {
+      /* 搬到 Mac mini 之後舊後端凍結：指令碼屬性 FROZEN=1 時寫入一律 MOVED，
+         不拿鎖、不碰試算表。放在 LockService 之前。 */
+      if (PropertiesService.getScriptProperties().getProperty('FROZEN') === '1') throw new Error('MOVED');
       var glock = LockService.getScriptLock();
       if (!glock.tryLock(20000)) throw new Error('BUSY_TRY_AGAIN');
       try {
@@ -489,4 +493,71 @@ function apiPnlSummary(req) {
     skipped: skipped,
     locked: lockedMonths().indexOf(month) >= 0
   };
+}
+
+// ---------- 回退用：importRows（只在 Mac mini 回退到舊試算表時使用） ----------
+// 認證用指令碼屬性 ROLLBACK_KEY（沒設或空＝一律拒絕），不走店長通行碼。
+// FROZEN=1 時也允許（回退當下舊後端仍是凍結的）。
+
+function importRowsResponse(req) {
+  var out;
+  try {
+    assertRollbackKey(req.key);
+    var glock = LockService.getScriptLock();
+    if (!glock.tryLock(20000)) throw new Error('BUSY_TRY_AGAIN');
+    try {
+      out = apiImportRows(req);
+    } finally {
+      glock.releaseLock();
+    }
+    out.ok = true;
+  } catch (err) {
+    out = { ok: false, error: String(err.message || err) };
+  }
+  return ContentService.createTextOutput(JSON.stringify(out))
+                       .setMimeType(ContentService.MimeType.JSON);
+}
+
+/* 寫法同 assertPnlKey：型別／長度先擋，長度一致才逐字元 XOR 累加到最後。 */
+function assertRollbackKey(key) {
+  var real = PropertiesService.getScriptProperties().getProperty('ROLLBACK_KEY');
+  if (!real || typeof key !== 'string' || key.length !== real.length) throw new Error('AUTH');
+  var diff = 0;
+  for (var i = 0; i < real.length; i++) {
+    diff |= real.charCodeAt(i) ^ key.charCodeAt(i);
+  }
+  if (diff !== 0) throw new Error('AUTH');
+}
+
+/* rows 的物件格式＝allRows() 回傳的格式；以單號 id upsert（整列覆寫 17 欄或 append）。
+   先整批驗證，有任何一筆壞就一筆都不寫。 */
+function apiImportRows(req) {
+  var rows = req.rows;
+  if (!Array.isArray(rows) || rows.length > 2000) throw new Error('BAD_INPUT');
+  rows.forEach(function (r) {
+    if (!r || typeof r !== 'object' || Array.isArray(r) || !r.id || typeof r.id !== 'string') throw new Error('BAD_INPUT');
+  });
+
+  var sh = sheet(SHEET_ROWS);
+  var existing = {};
+  allRows().forEach(function (r) { existing[r.id] = r._row; });
+  var nextRow = sh.getLastRow() + 1;
+  var inserted = 0, updated = 0;
+
+  rows.forEach(function (r) {
+    var line = [
+      r.id, r.store, r.date, r.kind, r.subject, r.name, r.amount,
+      r.hasInvoice ? '有' : '無', r.net, r.tax, r.seq, r.photo || '',
+      r.author, r.createdAt, r.status, r.voidedAt || '', r.voidReason || ''
+    ];
+    if (existing.hasOwnProperty(r.id)) {
+      sh.getRange(existing[r.id], 1, 1, 17).setValues([line]);
+      updated++;
+    } else {
+      sh.appendRow(line);
+      existing[r.id] = nextRow++;
+      inserted++;
+    }
+  });
+  return { inserted: inserted, updated: updated };
 }
