@@ -10,6 +10,15 @@ const { createAuth, ensureAdminInit } = require('./auth');
 const { createActions } = require('./actions');
 const health = require('./health');
 
+// 來源 IP：只有直連的是本機（Funnel／代理）才信 X-Forwarded-For，且取最後一段（代理自己寫的那段）；否則用 socket IP
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+function clientIp(req) {
+  const remote = (req.socket && req.socket.remoteAddress) || '?';
+  const xff = req.headers['x-forwarded-for'];
+  if (xff && LOOPBACK.has(remote)) { const parts = String(xff).split(','); return parts[parts.length - 1].trim() || remote; }
+  return remote;
+}
+const ACTION_RE = /^[A-Za-z]{1,20}$/;
 const PHOTO_RE = /^\/cashbook\/photo\/([0-9a-f]{32})\.jpg$/;
 
 function makeApp(cfg, opts) {
@@ -42,13 +51,9 @@ function makeApp(cfg, opts) {
       req.on('error', reject);
     });
   }
-  const clientIp = (req) => {
-    const xff = req.headers['x-forwarded-for'];
-    if (xff) return String(xff).split(',')[0].trim() || '?';
-    return (req.socket && req.socket.remoteAddress) || '?';
-  };
+  const xffCount = (req) => (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',').length : 0);
   // access log：只有時間、action、ok/錯誤碼、耗時毫秒。不記通行碼、不記 body
-  const access = (t0, action, out) => log(`${now().toISOString()} ${action} ${out.ok ? 'ok' : out.error} ${Date.now() - t0}ms`);
+  const access = (t0, action, out, req) => log(`${now().toISOString()} ${action} ${out.ok ? 'ok' : out.error} ${Date.now() - t0}ms` + (cfg.LOG_XFF && req ? ` xff=${xffCount(req)}` : ''));
 
   async function handle(req, res) {
     const t0 = Date.now();
@@ -58,17 +63,18 @@ function makeApp(cfg, opts) {
       if (req.method === 'OPTIONS') { res.writeHead(204, ch); return res.end(); }
       if (req.method === 'POST' && url === '/cashbook/api') {
         const buf = await readBody(req, cfg.MAX_BODY_BYTES);
-        if (buf === null) { const out = { ok: false, error: 'TOO_LARGE' }; send(res, 413, out, ch); return access(t0, 'api:?', out); }
+        if (buf === null) { const out = { ok: false, error: 'TOO_LARGE' }; send(res, 413, out, ch); return access(t0, 'api:?', out, req); }
         let body = null;
         try { body = JSON.parse(buf.toString('utf8')); } catch (e) { /* 下面回 BAD_INPUT */ }
         const out = body ? actions.dispatch(body, clientIp(req)) : { ok: false, error: 'BAD_INPUT' };
         send(res, 200, out, ch);
-        return access(t0, 'api:' + (body && typeof body.action === 'string' ? body.action.slice(0, 20) : '?'), out);
+        const act = body && typeof body.action === 'string' && ACTION_RE.test(body.action) ? body.action : '?';
+        return access(t0, 'api:' + act, out, req);
       }
       if (req.method === 'GET' && url === '/cashbook/health') {
         const out = health.collect(db, cfg, now);
         send(res, 200, out, ch);
-        return access(t0, 'health', { ok: true });
+        return access(t0, 'health', { ok: true }, req);
       }
       if (req.method === 'GET') {
         const m = PHOTO_RE.exec(url);
@@ -78,13 +84,13 @@ function makeApp(cfg, opts) {
           if (buf) {
             res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': buf.length, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
             res.end(buf);
-            return access(t0, 'photo', { ok: true });
+            return access(t0, 'photo', { ok: true }, req);
           }
         }
       }
       const out = { ok: false, error: 'NOT_FOUND' };
       send(res, 404, out, ch);
-      access(t0, 'notfound', out);
+      access(t0, 'notfound', out, req);
     } catch (e) {
       const out = { ok: false, error: 'SERVER_ERROR' };
       try { send(res, 200, out, ch); } catch (e2) { /* 連線已斷 */ }
@@ -100,10 +106,11 @@ function makeApp(cfg, opts) {
   };
 }
 
-module.exports = { makeApp };
+module.exports = { makeApp, clientIp };
 
 if (require.main === module) {
   const cfg = loadConfig();
+  if (!cfg.PUBLIC_BASE) { console.error('PUBLIC_BASE 未設定（照片網址前綴，例 https://<mini>.ts.net/cashbook），server 不啟動'); process.exit(1); }
   const app = makeApp(cfg);
   app.listen().then((a) => console.log(`cashbook server listening on ${a.address}:${a.port}, data=${cfg.DATA_DIR}`));
   const stop = () => app.close().then(() => process.exit(0));

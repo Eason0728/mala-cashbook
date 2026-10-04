@@ -11,6 +11,9 @@ const E = (code) => new ActionError(code);
 
 const monthOf = (d) => String(d).slice(0, 7);
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const validAmount = (n) => Number.isSafeInteger(n) && n >= 1 && n <= 10000000;
+// subject／name：trim 後 1～100 字，否則 BAD_INPUT
+function cleanText(v) { const t = String(v === undefined || v === null ? '' : v).trim(); if (t.length < 1 || t.length > 100) throw E('BAD_INPUT'); return t; }
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // 稅額拆法：與前端 js/calc.js、Code.gs splitTax 完全一致
@@ -87,11 +90,14 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
     assertOpen(month);
     if (!req.date || !req.subject || !req.name || !(Number(req.amount) > 0)) throw E('BAD_INPUT');
     if (typeof req.date !== 'string' || !DATE_RE.test(req.date) || (req.kind !== '支出' && req.kind !== '收入')) throw E('BAD_INPUT');
+    const amountInt = Math.round(Number(req.amount));
+    if (!validAmount(amountInt)) throw E('BAD_INPUT');
+    const subject = cleanText(req.subject), name = cleanText(req.name);
 
     const monthRows = rowsOfMonth(month);
     let seq = 0;
     monthRows.forEach((r) => { if (r.kind === req.kind && r.seq > seq) seq = r.seq; });
-    const t = splitTax(req.amount, req.hasInvoice);
+    const t = splitTax(amountInt, req.hasInvoice);
     let n = monthRows.length + 1;
     while (db.prepare('SELECT 1 FROM rows WHERE id = ?').get(month + '-' + ('00' + n).slice(-3))) n++;   // 日期被改到別月後單號可能撞號，往後找空號
     const id = month + '-' + ('00' + n).slice(-3);
@@ -110,8 +116,8 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
       } catch (e) { warning = 'PHOTO_FAIL'; }   // 照片失敗不能害這筆帳記不成
     }
     const row = {
-      id, store: storeName(), date: req.date, kind: req.kind, subject: String(req.subject), name: String(req.name),
-      amount: Math.round(Number(req.amount)), has_invoice: req.hasInvoice ? 1 : 0, net: t.net, tax: t.tax, seq: seq + 1,
+      id, store: storeName(), date: req.date, kind: req.kind, subject, name,
+      amount: amountInt, has_invoice: req.hasInvoice ? 1 : 0, net: t.net, tax: t.tax, seq: seq + 1,
       photo: photoUrl, author: '店長', created_at: stamp(), status: '正常'
     };
     try {
@@ -137,10 +143,10 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
     const hasInvoice = req.hasInvoice !== undefined ? !!req.hasInvoice : !!target.has_invoice;
     assertOpen(monthOf(date));
     const kind = req.kind || target.kind;
-    if (typeof date !== 'string' || !DATE_RE.test(date) || !Number.isFinite(amount) || amount <= 0 || (kind !== '支出' && kind !== '收入')) throw E('BAD_INPUT');
+    if (typeof date !== 'string' || !DATE_RE.test(date) || !validAmount(amount) || (kind !== '支出' && kind !== '收入')) throw E('BAD_INPUT');
     const t = splitTax(amount, hasInvoice);
     db.prepare('UPDATE rows SET date = ?, kind = ?, subject = ?, name = ?, amount = ?, has_invoice = ?, net = ?, tax = ? WHERE id = ?')
-      .run(date, kind, String(req.subject || target.subject), String(req.name || target.name), amount, hasInvoice ? 1 : 0, t.net, t.tax, target.id);
+      .run(date, kind, cleanText(req.subject || target.subject), cleanText(req.name || target.name), amount, hasInvoice ? 1 : 0, t.net, t.tax, target.id);
     return { row: toApi(findRow(req.id), true) };
   }
 
@@ -148,7 +154,9 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
   function voidRow(req) {
     const target = findRow(req.id);
     assertOpen(monthOf(target.date));
-    db.prepare("UPDATE rows SET status = '作廢', voided_at = ?, void_reason = ? WHERE id = ?").run(stamp(), req.reason ? String(req.reason) : '', target.id);
+    const reason = req.reason ? String(req.reason) : '';
+    if (reason.length > 200) throw E('BAD_INPUT');
+    db.prepare("UPDATE rows SET status = '作廢', voided_at = ?, void_reason = ? WHERE id = ?").run(stamp(), reason, target.id);
     return { row: toApi(findRow(req.id), true) };
   }
 
@@ -165,8 +173,9 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
   // 損益系統唯讀端點：獨立金鑰 PNL_KEY，不走通行碼。長度不同或型別錯一律 AUTH；長度相同才逐位元常數時間比對
   function assertPnlKey(key) {
     const real = cfg.PNL_KEY;
-    if (!real || typeof key !== 'string' || key.length !== real.length) throw E('AUTH');
-    if (!crypto.timingSafeEqual(Buffer.from(key), Buffer.from(real))) throw E('AUTH');
+    if (!real || typeof key !== 'string') throw E('AUTH');
+    const a = Buffer.from(key), b = Buffer.from(real);
+    if (a.byteLength !== b.byteLength || !crypto.timingSafeEqual(a, b)) throw E('AUTH');   // 先比位元組長度，多位元組字元不會丟 RangeError
   }
   function pnlSummary(req) {
     assertPnlKey(req.key);

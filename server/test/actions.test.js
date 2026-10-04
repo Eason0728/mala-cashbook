@@ -259,3 +259,47 @@ test('寫入動作整個 transaction：中途出錯不留半筆（rows/frequent/
     assert.strictEqual(s2.db.prepare('SELECT COUNT(*) c FROM rows').get().c, 0);
   } finally { s2.cleanup(); }
 });
+
+test('amount 必須安全整數且 1～10,000,000：超界／NaN／Infinity 回 BAD_INPUT（create 與 update），整月仍可讀', () => {
+  const s = setup();
+  try {
+    for (const amount of [2 ** 53 + 2, 10000001, 1e21, 'Infinity', Infinity, 0.4, -1]) assert.strictEqual(s.call('create', mk({ amount })).error, 'BAD_INPUT', String(amount));
+    assert.strictEqual(s.call('create', mk({ amount: 10000000 })).ok, true);
+    const r = s.call('create', mk({ amount: 1 })).row;
+    for (const amount of [2 ** 53 + 2, 10000001, 0, NaN, 'x']) assert.strictEqual(s.call('update', { id: r.id, amount }).error, 'BAD_INPUT', String(amount));
+    assert.strictEqual(s.call('list', { month: '2026-10' }).rows.length, 2);
+    assert.strictEqual(s.actions.dispatch({ action: 'pnlSummary', key: PNL, month: '2026-10' }).ok, true);
+  } finally { s.cleanup(); }
+});
+
+test('subject／name：trim 後 1～100 字，否則 BAD_INPUT（create 與 update）；void reason ≤200 字', () => {
+  const s = setup();
+  try {
+    assert.strictEqual(s.call('create', mk({ subject: 'a'.repeat(101) })).error, 'BAD_INPUT');
+    assert.strictEqual(s.call('create', mk({ name: 'b'.repeat(101) })).error, 'BAD_INPUT');
+    assert.strictEqual(s.call('create', mk({ name: '   ' })).error, 'BAD_INPUT');
+    assert.strictEqual(s.call('create', mk({ name: 'x'.repeat(7 * 1024 * 1024) })).error, 'BAD_INPUT');
+    const ok = s.call('create', mk({ subject: '  ' + 'a'.repeat(100) + ' ', name: ' 豆皮 ' })).row;
+    assert.strictEqual(ok.subject.length, 100); assert.strictEqual(ok.name, '豆皮');
+    assert.strictEqual(s.call('update', { id: ok.id, name: 'n'.repeat(101) }).error, 'BAD_INPUT');
+    assert.strictEqual(s.call('update', { id: ok.id, subject: 's'.repeat(101) }).error, 'BAD_INPUT');
+    assert.strictEqual(s.call('update', { id: ok.id, name: ' 新名 ' }).row.name, '新名');
+    assert.strictEqual(s.call('void', { id: ok.id, reason: 'r'.repeat(201) }).error, 'BAD_INPUT');
+    assert.strictEqual(s.call('void', { id: ok.id, reason: 'r'.repeat(200) }).row.status, '作廢');
+  } finally { s.cleanup(); }
+});
+
+test('PNL_KEY：多位元組錯金鑰（字元數相同、位元組數不同）回 AUTH 不是 SERVER_ERROR', () => {
+  const s = setup();
+  try {
+    for (const key of ['é'.repeat(PNL.length), '金'.repeat(PNL.length), PNL.slice(0, -1) + '金', '金'.repeat(3)]) {
+      assert.deepStrictEqual(s.actions.dispatch({ action: 'pnlSummary', key, month: '2026-10' }), { ok: false, error: 'AUTH' });
+    }
+  } finally { s.cleanup(); }
+  const s2 = setup({ env: { PNL_KEY: '金鑰abc' } });   // 真金鑰本身含多位元組
+  try {
+    assert.strictEqual(s2.actions.dispatch({ action: 'pnlSummary', key: '金鑰abc', month: '2026-10' }).ok, true);
+    assert.strictEqual(s2.actions.dispatch({ action: 'pnlSummary', key: 'abcdef', month: '2026-10' }).error, 'AUTH');
+    assert.strictEqual(s2.actions.dispatch({ action: 'pnlSummary', key: '金金abc', month: '2026-10' }).error, 'AUTH');
+  } finally { s2.cleanup(); }
+});

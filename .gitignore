@@ -9,3 +9,11 @@ e2e/guide/s*.png
 
 # skill 工作流的本機備份（git 本身就是版控）
 *.bak
+
+# Mac mini 後端祕密（ADMIN_INIT／PNL_KEY／BACKUP_KEY）絕不進版控；範本 .env.example 例外
+server/.env
+server/.env.*
+!server/.env.example
+
+# 備份 Apps Script 的 clasp 綁定（含 scriptId，不進公開 repo）
+gas-backup/.clasp.json

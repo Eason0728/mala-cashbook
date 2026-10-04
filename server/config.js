@@ -28,6 +28,7 @@ function loadConfig(envIn) {
     BACKUP_KEY: env.BACKUP_KEY || '',
     ALLOW_ORIGIN: ['https://eason0728.github.io'].concat((env.ALLOW_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean)),
     PUBLIC_BASE: String(env.PUBLIC_BASE || '').replace(/\/+$/, ''),
+    LOG_XFF: env.LOG_XFF === '1',
     MAX_BODY_BYTES: 8 * 1024 * 1024
   };
 }

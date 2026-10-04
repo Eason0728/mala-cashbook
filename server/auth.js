@@ -17,6 +17,7 @@ function verifyPassword(pw, stored) {
   if (p.length !== 3 || p[0] !== 'scrypt') return false;
   const want = Buffer.from(p[2], 'hex');
   const got = crypto.scryptSync(String(pw), Buffer.from(p[1], 'hex'), want.length);
+  if (want.length !== 64) return false;   // 雜湊段空白或被截短一律拒絕
   return want.length === got.length && crypto.timingSafeEqual(want, got);   // 雜湊等長，逐位元常數時間比對
 }
 const DUMMY = hashPassword('dummy-not-a-real-password');   // 還沒設碼時也跑一次雜湊，回應時間不洩漏狀態

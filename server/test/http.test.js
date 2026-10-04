@@ -5,7 +5,7 @@ const http = require('node:http');
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const { tmpEnv, STORE, ADMIN, JPG } = require('./helpers');
-const { makeApp } = require('../index');
+const { makeApp, clientIp } = require('../index');
 const { setStorePass } = require('../auth');
 const health = require('../health');
 
@@ -123,12 +123,48 @@ test('health：備份太久沒成功 → red（透過真 server 的 meta）', as
   assert.strictEqual((await req('GET', '/cashbook/health')).json.level, 'green');
 });
 
-test('通行碼失敗鎖依 X-Forwarded-For 第一段', async () => {
-  for (let i = 0; i < 20; i++) await api({ action: 'bootstrap', pass: 'bad' }, { 'X-Forwarded-For': '203.0.113.9, 10.0.0.1' });
-  const locked = await api({ action: 'bootstrap', pass: STORE }, { 'X-Forwarded-For': '203.0.113.9, 10.9.9.9' });
+test('失敗鎖：直連本機時信 X-Forwarded-For「最後一段」；偽造多段第一段不能繞鎖', async () => {
+  for (let i = 0; i < 20; i++) await api({ action: 'bootstrap', pass: 'bad' }, { 'X-Forwarded-For': `6.6.6.${i}, 203.0.113.9` });   // 第一段每次換假 IP
+  const locked = await api({ action: 'bootstrap', pass: STORE }, { 'X-Forwarded-For': '1.2.3.4, 203.0.113.9' });
   assert.deepStrictEqual(locked.json, { ok: false, error: 'AUTH_LOCKED' });
   const other = await api({ action: 'bootstrap', pass: STORE }, { 'X-Forwarded-For': '203.0.113.10' });
   assert.strictEqual(other.json.ok, true);
+});
+
+test('clientIp：非 loopback 的 socket 一律用 socket IP，忽略 XFF；loopback 才取最後一段', () => {
+  const mkReq = (remote, xff) => ({ socket: { remoteAddress: remote }, headers: xff === undefined ? {} : { 'x-forwarded-for': xff } });
+  assert.strictEqual(clientIp(mkReq('198.51.100.7', '1.1.1.1, 2.2.2.2')), '198.51.100.7');
+  assert.strictEqual(clientIp(mkReq('::ffff:198.51.100.7', '1.1.1.1')), '::ffff:198.51.100.7');
+  assert.strictEqual(clientIp(mkReq('127.0.0.1', '1.1.1.1, 2.2.2.2')), '2.2.2.2');
+  assert.strictEqual(clientIp(mkReq('::1', ' 3.3.3.3 ')), '3.3.3.3');
+  assert.strictEqual(clientIp(mkReq('::ffff:127.0.0.1', '4.4.4.4')), '4.4.4.4');
+  assert.strictEqual(clientIp(mkReq('127.0.0.1')), '127.0.0.1');
+});
+
+test('LOG_XFF=1：access log 多記 xff 段數，不記 IP；未開時沒有這欄', async () => {
+  const env2 = tmpEnv({ LOG_XFF: '1' }); const logs2 = [];
+  const app2 = makeApp(env2.cfg, { log: (x) => logs2.push(x) });
+  const a2 = await app2.listen(0, '127.0.0.1');
+  try {
+    await new Promise((resolve) => { const r = http.request({ host: '127.0.0.1', port: a2.port, method: 'POST', path: '/cashbook/api', headers: { 'X-Forwarded-For': '5.5.5.5, 6.6.6.6, 7.7.7.7' } }, (res) => { res.resume(); res.on('end', resolve); }); r.end('{"action":"x"}'); });
+    assert.match(logs2[0], / xff=3$/); assert.ok(!logs2[0].includes('5.5.5.5') && !logs2[0].includes('7.7.7.7'));
+  } finally { await app2.close(); env2.cleanup(); }
+  logs.length = 0; await api({ action: 'bootstrap', pass: 'x' }, { 'X-Forwarded-For': '192.0.2.200' });
+  assert.ok(!/xff=/.test(logs[0]));
+});
+
+test('access log 的 action 不合 /^[A-Za-z]{1,20}$/ 一律記 ?（防 log 注入）', async () => {
+  logs.length = 0;
+  for (const action of ['boot\nFAKE LINE', 'a'.repeat(21), 'x y', 'ação', 123, '']) await api({ action, pass: 'x' }, { 'X-Forwarded-For': '192.0.2.201' });
+  await api({ pass: 'x' }, { 'X-Forwarded-For': '192.0.2.201' });
+  assert.strictEqual(logs.length, 7);
+  for (const l of logs) assert.match(l, /^\S+ api:\? [A-Z_]+ \d+ms$/, l);
+});
+
+test('PUBLIC_BASE 空值：正式啟動 server 直接 exit 1 並印原因', () => {
+  const { spawnSync } = require('node:child_process');
+  const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'index.js')], { env: { PATH: process.env.PATH, HOME: env.dir, DATA_DIR: env.dir, PUBLIC_BASE: '' }, encoding: 'utf8', timeout: 10000 });
+  assert.strictEqual(r.status, 1); assert.match(r.stderr, /PUBLIC_BASE/);
 });
 
 test('access log 只有時間、action、ok/錯誤碼、耗時；不含通行碼、body、金額', async () => {

@@ -132,3 +132,16 @@ test('管理碼錯誤與店長碼共用同一來源的失敗鎖', () => {
     assert.strictEqual(s.actions.dispatch({ action: 'adminGet', adminPass: ADMIN }, '7.7.7.7').error, 'AUTH_LOCKED');
   } finally { s.cleanup(); }
 });
+
+test('verifyPassword：雜湊段空白或長度不是 64 bytes 一律 false', () => {
+  const salt = '00'.repeat(16);
+  for (const stored of [`scrypt$${salt}$`, `scrypt$${salt}$${'ab'.repeat(32)}`, `scrypt$${salt}$${'ab'.repeat(63)}`, `scrypt$${salt}$${'ab'.repeat(65)}`, 'scrypt$$', 'scrypt', '', null, undefined]) {
+    assert.strictEqual(verifyPassword('', stored), false, String(stored));
+    assert.strictEqual(verifyPassword('anything', stored), false, String(stored));
+  }
+  const s = setup();
+  try {   // DB 裡被手改成空雜湊：任何通行碼都不能過
+    s.db.prepare("UPDATE settings SET value = ? WHERE key = 'store_pass_hash'").run(`scrypt$${salt}$`);
+    assert.strictEqual(s.actions.dispatch({ action: 'bootstrap', pass: 'whatever' }, '1.1.1.1').error, 'AUTH_FAIL');
+  } finally { s.cleanup(); }
+});
