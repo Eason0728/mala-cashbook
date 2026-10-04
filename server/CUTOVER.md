@@ -102,8 +102,10 @@ cd ~/mala-cashbook; export PATH="$HOME/.local/node/bin:$PATH"; NODE="$HOME/.loca
 
 ```js
 (async () => {
+  // 網址直接寫死：Console 不一定在 app 頁面的執行環境裡，Config 可能讀不到（2026-10-05 實際踩到 Config is not defined）
+  const URL = 'https://script.google.com/macros/s/AKfycbyelA64WCKft6WhiMZJjtl1egZV3jFUt0eT_MP2KfkkBA7ry9vJEuylIaqC7p_Bk3p56w/exec';
   const pass = prompt('店長通行碼（只在這裡輸入）');
-  const post = (b) => fetch(Config.GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(b) }).then((r) => r.json());
+  const post = (b) => fetch(URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(b) }).then((r) => r.json());
   const c = await post({ action: 'create', pass, date: '2026-10-01', kind: '支出', subject: '雜支', name: '凍結測試', amount: 1 });
   const l = await post({ action: 'bootstrap', pass });
   console.log('create →', c.ok, c.error, '｜bootstrap（讀取）→', l.ok);
