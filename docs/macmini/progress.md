@@ -27,6 +27,7 @@
 | 2026-10-05 | 切換 | migrate | Eason 回報搬完；/cashbook/health rows=95 | 1 | 對話 |
 | 2026-10-05 | 切換 | 前端 main a31c3e1（sw v21） | Pages config.js 無 script.google.com；正式網址實測 AUTH_FAIL 639ms | 1 | 對話 |
 | 2026-10-05 | 切換 | 手機實測、損益連接器、ADMIN_INIT／PNL_KEY | Eason 回報全部正常 | 1 | 對話 |
+| 2026-10-05 | 觀察 D1 | 備份＋守門＋速度 | 通過：health green、rows=95、backupAt 2026-10-04T19:50:09Z；守門 run 37243726604「green｜無」（台北 07:25）；錯碼 bootstrap ×5 全 AUTH_FAIL，0.63～0.76s | 1 | 排程任務 cashbook-cutover-day1-check |
 | 2026-10-04 | 上線 | 舊 Apps Script @12（FROZEN 未開） | 瀏覽器實測兩次 importRows 無金鑰回 AUTH、錯碼 bootstrap 回 AUTH_FAIL | 1 | 對話 |
 
 ## 落地清單
