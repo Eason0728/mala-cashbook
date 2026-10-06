@@ -68,7 +68,7 @@ async function main(deps) {
   const nowFn = deps.now || (() => new Date());
   const cfg = loadConfig(deps.env);
   const retryMs = deps.retryMs !== undefined ? deps.retryMs : 3000;
-  const db = openDb(cfg.DATA_DIR, nowFn);
+  const db = openDb(cfg.DATA_DIR, nowFn, cfg.LEGACY_STORE);
   const fail = (msg) => { setMeta(db, 'backup_last_result', 'fail'); out('備份失敗：' + msg); db.close(); return 1; };
   if (!cfg.BACKUP_URL || !cfg.BACKUP_KEY) return fail('BACKUP_URL 或 BACKUP_KEY 沒設');
   let problem = null;

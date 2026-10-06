@@ -16,11 +16,12 @@ CREATE TABLE IF NOT EXISTS rows (
   void_reason TEXT NOT NULL DEFAULT '', photo_file TEXT NOT NULL DEFAULT '', photo_backed_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_rows_date ON rows(date);
 CREATE TABLE IF NOT EXISTS frequent (
-  subject TEXT NOT NULL, name TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, last_used TEXT NOT NULL DEFAULT '',
-  PRIMARY KEY (subject, name));
-CREATE TABLE IF NOT EXISTS locks (month TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT '鎖定', locked_at TEXT NOT NULL DEFAULT '');
+  store TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL, name TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, last_used TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (store, subject, name));
+CREATE TABLE IF NOT EXISTS locks (store TEXT NOT NULL DEFAULT '', month TEXT NOT NULL, status TEXT NOT NULL DEFAULT '鎖定', locked_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (store, month));
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS create_tokens (token TEXT PRIMARY KEY, row_id TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS create_tokens (store TEXT NOT NULL DEFAULT '', token TEXT NOT NULL, row_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (store, token));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
@@ -32,14 +33,61 @@ function setSetting(db, key, value) { db.prepare('INSERT INTO settings (key, val
 function getMeta(db, key) { const r = db.prepare('SELECT value FROM meta WHERE key = ?').get(key); return r ? r.value : null; }
 function setMeta(db, key, value) { db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value)); }
 
+const STORE_CODE_RE = /^[A-Z0-9]{2,12}$/;
+const hasCol = (db, table, col) => db.prepare('PRAGMA table_info(' + table + ')').all().some((c) => c.name === col);
+
+// 多店遷移（2026-10-06）：啟動時自動、可重跑、不毀資料。
+// 1) 舊結構（locks/frequent/create_tokens 還沒有 store 欄）→ 先把 db 複製一份到 snapshots/ 再改結構；
+// 2) rows.store 不是門市代號的（舊值「新竹光復」、空白）一律換成 legacy 代號。每次開庫都跑一次，已是代號的不動。
+function migrateMultistore(db, dataDir, now, legacy) {
+  const needSchema = !hasCol(db, 'locks', 'store') || !hasCol(db, 'frequent', 'store') || !hasCol(db, 'create_tokens', 'store');
+  if (needSchema) {
+    if (dataDir !== ':memory:') {
+      const dir = path.join(dataDir, 'snapshots');
+      fs.mkdirSync(dir, { recursive: true });
+      const stamp = taipeiStamp(now ? now() : new Date()).replace(/[-:]/g, '').replace('+0800', '').replace('+08:00', '');
+      const file = path.join(dir, 'cashbook-pre-multistore-' + stamp + '.db');
+      if (!fs.existsSync(file)) db.exec("VACUUM INTO '" + file.replace(/'/g, "''") + "'");
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const L = "'" + legacy.replace(/'/g, "''") + "'";
+      if (!hasCol(db, 'locks', 'store')) {
+        db.exec(`ALTER TABLE locks RENAME TO locks_old;
+          CREATE TABLE locks (store TEXT NOT NULL DEFAULT '', month TEXT NOT NULL, status TEXT NOT NULL DEFAULT '鎖定', locked_at TEXT NOT NULL DEFAULT '', PRIMARY KEY (store, month));
+          INSERT INTO locks (store, month, status, locked_at) SELECT ${L}, month, status, locked_at FROM locks_old ORDER BY rowid;
+          DROP TABLE locks_old;`);
+      }
+      if (!hasCol(db, 'frequent', 'store')) {
+        db.exec(`ALTER TABLE frequent RENAME TO frequent_old;
+          CREATE TABLE frequent (store TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL, name TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, last_used TEXT NOT NULL DEFAULT '', PRIMARY KEY (store, subject, name));
+          INSERT INTO frequent (store, subject, name, count, last_used) SELECT ${L}, subject, name, count, last_used FROM frequent_old ORDER BY rowid;
+          DROP TABLE frequent_old;`);
+      }
+      if (!hasCol(db, 'create_tokens', 'store')) {
+        db.exec(`ALTER TABLE create_tokens RENAME TO create_tokens_old;
+          CREATE TABLE create_tokens (store TEXT NOT NULL DEFAULT '', token TEXT NOT NULL, row_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (store, token));
+          INSERT INTO create_tokens (store, token, row_id, created_at) SELECT ${L}, token, row_id, created_at FROM create_tokens_old ORDER BY rowid;
+          DROP TABLE create_tokens_old;`);
+      }
+      db.exec('COMMIT');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch (e2) { /* */ } throw e; }
+  }
+  db.prepare("UPDATE rows SET store = ? WHERE store = '' OR store NOT GLOB '[A-Z0-9]*'").run(legacy);
+}
+
 // dataDir 可傳 ':memory:'（只給單元測試）。開兩次不壞：建表 IF NOT EXISTS、初始設定只在缺值時寫入。
-function openDb(dataDir, now) {
+function openDb(dataDir, now, legacyStore) {
+  const legacy = legacyStore || process.env.LEGACY_STORE_CODE || 'MDGF';
+  if (!STORE_CODE_RE.test(legacy)) throw new Error('LEGACY_STORE_CODE 格式不對（大寫英數 2～12 碼）');
   let file = ':memory:';
   if (dataDir !== ':memory:') { fs.mkdirSync(dataDir, { recursive: true }); file = path.join(dataDir, 'cashbook.db'); }
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;');
+  db.legacyStore = legacy;
   db.exec(SCHEMA);
-  db.exec('PRAGMA user_version = 1');
+  migrateMultistore(db, dataDir, now, legacy);
+  db.exec('PRAGMA user_version = 2');
   // 交易：同一個行程依序處理，不支援巢狀；失敗一律回滾後把錯誤丟出去
   db.tx = (fn) => {
     db.exec('BEGIN IMMEDIATE');
@@ -66,10 +114,10 @@ function insertImportedRow(db, r) {
       S(r.status) || '正常', S(r.voidedAt), S(r.voidReason), S(r.photoFile), r.photoBackedAt ? S(r.photoBackedAt) : null);
 }
 function insertImportedFrequent(db, f) {
-  db.prepare('INSERT OR REPLACE INTO frequent (subject, name, count, last_used) VALUES (?,?,?,?)').run(S(f.subject), S(f.name), Math.round(N(f.count)), S(f.lastUsed));
+  db.prepare('INSERT OR REPLACE INTO frequent (store, subject, name, count, last_used) VALUES (?,?,?,?,?)').run(db.legacyStore, S(f.subject), S(f.name), Math.round(N(f.count)), S(f.lastUsed));
 }
 function insertImportedLock(db, month, lockedAt) {
-  db.prepare("INSERT OR REPLACE INTO locks (month, status, locked_at) VALUES (?, '鎖定', ?)").run(S(month), S(lockedAt));
+  db.prepare("INSERT OR REPLACE INTO locks (store, month, status, locked_at) VALUES (?, ?, '鎖定', ?)").run(db.legacyStore, S(month), S(lockedAt));
 }
 
-module.exports = { openDb, taipeiStamp, getSetting, setSetting, getMeta, setMeta, insertImportedRow, insertImportedFrequent, insertImportedLock, DEFAULT_EXPENSE, DEFAULT_INCOME };
+module.exports = { STORE_CODE_RE, openDb, taipeiStamp, getSetting, setSetting, getMeta, setMeta, insertImportedRow, insertImportedFrequent, insertImportedLock, DEFAULT_EXPENSE, DEFAULT_INCOME };

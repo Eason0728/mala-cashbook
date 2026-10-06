@@ -18,12 +18,18 @@ function loadConfig(envIn) {
   if (!envIn) readDotenv(path.join(__dirname, '.env'), env);
   const home = env.HOME || os.homedir();
   const dataDir = env.DATA_DIR ? path.resolve(env.DATA_DIR.replace(/^~/, home)) : path.join(home, 'mala-cashbook-data');
+  const legacyStore = env.LEGACY_STORE_CODE || 'MDGF';
+  if (!/^[A-Z0-9]{2,12}$/.test(legacyStore)) throw new Error('LEGACY_STORE_CODE 格式不對（大寫英數 2～12 碼）');
   return {
     PORT: env.PORT !== undefined && env.PORT !== '' ? Number(env.PORT) : 8795,
     BIND: env.BIND || '127.0.0.1',
     DATA_DIR: dataDir,
     ADMIN_INIT: env.ADMIN_INIT || '',
     PNL_KEY: env.PNL_KEY || '',
+    // 門市營運系統通道（2026-10-06）：STORE_SVC_KEY 未設＝關閉；STORE_LOGIN_OFF=1＝店長通行碼登入回 MOVED_TO_STORE_OPS
+    STORE_SVC_KEY: env.STORE_SVC_KEY || '',
+    STORE_LOGIN_OFF: env.STORE_LOGIN_OFF === '1',
+    LEGACY_STORE: legacyStore,
     BACKUP_URL: env.BACKUP_URL || '',
     BACKUP_KEY: env.BACKUP_KEY || '',
     ALLOW_ORIGIN: ['https://eason0728.github.io'].concat((env.ALLOW_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean)),

@@ -26,8 +26,9 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
-  function baseName(month) {
-    return '現金收支_' + window.Config.STORE + '_' + month;
+  function baseName(month, storeName) {
+    // 會計跨店匯出會帶該店店名；店長自己匯出沿用設定裡的店別
+    return '現金收支_' + (storeName || window.Config.STORE) + '_' + month;
   }
 
   /* 匯出的內容組裝在 Calc.buildExportRows（作廢的不出、依日期與收據編號排序），
@@ -62,7 +63,7 @@
     return wb;
   }
 
-  function run(pass, month, rows) {
+  function run(pass, month, rows, storeName) {
     // 函式庫沒載進來就講人話，不要丟一個 ReferenceError 給會計看
     if (typeof XLSX === 'undefined') return Promise.reject(new Error('XLSX_MISSING'));
     var buf = XLSX.write(toWorkbook(buildMatrix(rows)), { bookType: 'xlsx', type: 'array' });
@@ -70,7 +71,7 @@
     var suffix = window.Config.MODE === 'local' ? '_本機測試' : '';
     download(new Blob([buf], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    }), baseName(month) + suffix + '.xlsx');
+    }), baseName(month, storeName) + suffix + '.xlsx');
     return Promise.resolve({ format: 'xlsx' });
   }
 

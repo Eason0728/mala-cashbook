@@ -38,19 +38,33 @@ function createAuth(db, now) {
     if (state.size < 5000) return;
     for (const [k, e] of state) if (e.lockedUntil <= t && !e.fails.some((x) => t - x < WINDOW_MS)) state.delete(k);
   }
-  function check(key, pass, ip) {
+  // verify() 回 true＝通過。失敗計入同一個來源的失敗鎖（通行碼與服務金鑰共用）
+  function guard(ip, verify) {
     const t = clock().getTime(), e = entry(ip || '?');
     sweep(t);
     if (e.lockedUntil > t) throw new AuthError('AUTH_LOCKED');
-    const stored = getSetting(db, key);
-    const ok = typeof pass === 'string' && pass.length > 0 && pass.length <= 200 && verifyPassword(pass, stored || DUMMY) && !!stored;
-    if (ok) return;
+    if (verify()) return;
     e.fails = e.fails.filter((x) => t - x < WINDOW_MS);
     e.fails.push(t);
     if (e.fails.length >= MAX_FAILS) { e.lockedUntil = t + LOCK_MS; e.fails = []; }
     throw new AuthError('AUTH_FAIL');
   }
+  function check(key, pass, ip) {
+    guard(ip, () => {
+      const stored = getSetting(db, key);
+      return typeof pass === 'string' && pass.length > 0 && pass.length <= 200 && verifyPassword(pass, stored || DUMMY) && !!stored;
+    });
+  }
+  // 服務金鑰：長度不同直接失敗，等長才逐位元常數時間比對（real 空＝通道關閉，一律失敗）
+  function checkKey(provided, real, ip) {
+    guard(ip, () => {
+      if (!real || typeof provided !== 'string') return false;
+      const a = Buffer.from(provided), b = Buffer.from(real);
+      return a.byteLength === b.byteLength && crypto.timingSafeEqual(a, b);
+    });
+  }
   return {
+    checkKey,
     checkStore: (pass, ip) => check(STORE_KEY, pass, ip),
     checkAdmin: (pass, ip) => check(ADMIN_KEY, pass, ip)
   };

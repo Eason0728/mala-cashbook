@@ -8,7 +8,7 @@
 // ROLLBACK_KEY／OLD_PASS 只從環境變數讀、絕不印出。exit：0 成功（或 dry-run 完成）、1 失敗。
 const { loadConfig } = require('../config');
 const { openDb, getMeta, taipeiStamp } = require('../db');
-const { callOld, normalizeRow, canonOld, canonDb, FIELDS } = require('./migrate');
+const { callOld, normalizeRow, canonOld, canonDb, storeLabel, FIELDS } = require('./migrate');
 
 const CHUNK = 500;   // 舊後端 importRows 單次上限 2000，留餘裕
 const TS_OK = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00$/;
@@ -34,8 +34,8 @@ function normSince(v) {
 }
 
 // DB 列 → 舊後端 importRows 的物件格式（hasInvoice 一定是 boolean）
-function toOldShape(r) {
-  return { id: r.id, store: r.store, date: r.date, kind: r.kind, subject: r.subject, name: r.name, amount: r.amount,
+function toOldShape(r, db) {
+  return { id: r.id, store: storeLabel(db, r), date: r.date, kind: r.kind, subject: r.subject, name: r.name, amount: r.amount,
     hasInvoice: r.has_invoice === 1, net: r.net, tax: r.tax, seq: r.seq, photo: r.photo, author: r.author,
     createdAt: r.created_at, status: r.status, voidedAt: r.voided_at, voidReason: r.void_reason };
 }
@@ -74,7 +74,7 @@ async function main(deps) {
   let db = null;
   try {
     const cfg = loadConfig(deps.cfgEnv || env);
-    db = openDb(cfg.DATA_DIR, now);
+    db = openDb(cfg.DATA_DIR, now, cfg.LEGACY_STORE);
     let since;
     try { since = normSince(opts.since !== null ? opts.since : getMeta(db, 'migrated_at')); }
     catch (e) { out(opts.since !== null ? '錯誤：' + e.message : '錯誤：meta 沒有 migrated_at（遷移時間），請用 --since 指定切換時間'); return 1; }
@@ -102,12 +102,12 @@ async function main(deps) {
       }
       all.forEach((r) => {
         if (picked.has(r.id)) return;
-        const o = oldMap.get(r.id), n = canonDb(r);
+        const o = oldMap.get(r.id), n = canonDb(r, db);
         if (!o || FIELDS.some((f) => o[f] !== n[f])) { picked.set(r.id, r); why[r.id] = o ? '與舊試算表內容不同（切換後被修改）' : '舊試算表沒有這筆'; byCompare++; }
       });
     }
 
-    const rows = [...picked.values()].map(toOldShape);
+    const rows = [...picked.values()].map((r) => toOldShape(r, db));
     out(`要寫回舊試算表的列：${rows.length} 筆（依時間 ${byTime}、依比對舊試算表另外補 ${byCompare}；mini 共 ${all.length} 筆）`);
     rows.slice(0, 50).forEach((r) => out(`  ${r.id}  ${why[r.id]}`));
     if (rows.length > 50) out(`  …另 ${rows.length - 50} 筆`);

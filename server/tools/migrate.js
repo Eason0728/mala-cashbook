@@ -87,8 +87,10 @@ function canonOld(r) {
     hasInvoice: isInv(r.hasInvoice) ? '1' : '0', net: String(Math.round(N(r.net))), tax: String(Math.round(N(r.tax))), seq: String(Math.round(N(r.seq))),
     photo: S(r.photo), author: S(r.author), createdAt: S(r.createdAt), status: S(r.status) || '正常', voidedAt: S(r.voidedAt), voidReason: S(r.voidReason) };
 }
-function canonDb(r) {
-  return { id: r.id, store: r.store, date: r.date, kind: r.kind, subject: r.subject, name: r.name, amount: String(r.amount), hasInvoice: String(r.has_invoice),
+// 多店之後 rows.store 是門市代號；比對舊端時，legacy 代號還原成設定裡的店名（舊端存的是店名）
+const storeLabel = (db, r) => (db && r.store === db.legacyStore ? (getSetting(db, 'store') || r.store) : r.store);
+function canonDb(r, db) {
+  return { id: r.id, store: storeLabel(db, r), date: r.date, kind: r.kind, subject: r.subject, name: r.name, amount: String(r.amount), hasInvoice: String(r.has_invoice),
     net: String(r.net), tax: String(r.tax), seq: String(r.seq), photo: r.photo, author: r.author, createdAt: r.created_at, status: r.status, voidedAt: r.voided_at, voidReason: r.void_reason };
 }
 
@@ -128,7 +130,7 @@ function table(oldS, newS, months, w) {
 // 逐筆（以 id 為鍵）比全部欄位，另比 frequent、locks、科目、店別。回差異字串陣列。
 function diffAll(db, oldRows, oldFreq, oldLocked, settings) {
   const diffs = [];
-  const dbRows = new Map(db.prepare('SELECT * FROM rows').all().map((r) => [r.id, canonDb(r)]));
+  const dbRows = new Map(db.prepare('SELECT * FROM rows').all().map((r) => [r.id, canonDb(r, db)]));
   const oldMap = new Map(oldRows.map((r) => [S(r.id), canonOld(r)]));
   oldMap.forEach((o, id) => {
     const n = dbRows.get(id);
@@ -217,7 +219,7 @@ async function main(deps) {
 
     // 4. 寫入（單一 transaction）
     const cfg = loadConfig(deps.cfgEnv || deps.env);
-    db = openDb(cfg.DATA_DIR, now);
+    db = openDb(cfg.DATA_DIR, now, cfg.LEGACY_STORE);
     if (!opts.verifyOnly) {
       const existing = db.prepare('SELECT COUNT(*) c FROM rows').get().c;
       if (existing > 0 && !opts.replace) { out(`拒絕：目標資料庫 rows 已有 ${existing} 筆。要覆蓋請加 --replace（會先清 rows／frequent／locks）`); return 2; }
@@ -255,4 +257,4 @@ async function main(deps) {
 }
 
 if (require.main === module) main().then((c) => process.exit(c));
-module.exports = { main, parseArgs, monthsBetween, callOld, normalizeRow, canonOld, canonDb, FIELDS };
+module.exports = { storeLabel, main, parseArgs, monthsBetween, callOld, normalizeRow, canonOld, canonDb, FIELDS };

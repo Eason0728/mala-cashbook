@@ -503,3 +503,36 @@ TS=$( [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ] && echo /Appli
 ```
 
 **`~/mala-cashbook-data`（含 `cashbook.db` 與全部收據照片）不要刪**——除非 Eason 明確說要刪；資料沒備份前不要動。這是「拆掉部署」；**已經切換過、要把前端與資料退回舊 Apps Script** 是另一件事，見 [`ROLLBACK.md`](ROLLBACK.md)。
+
+---
+
+## 門市營運系統通道與多店（未啟用）
+
+2026-10-06 加入、**預設全部關閉**：不設下列值時，伺服器行為與上一版完全相同（店長通行碼照舊、店別固定光復）。對應規格：門市營運系統 spec 第 4、8、10 節。
+
+| 設定（`server/.env`） | 預設 | 作用 |
+|---|---|---|
+| `STORE_SVC_KEY` | 空＝通道關閉 | 服務金鑰。營運系統呼叫 `POST /cashbook/api` 時帶標頭 `X-Store-Key`（金鑰）＋`X-Store-Code`（門市代號，`^[A-Z0-9]{2,12}$`），視為該店通行碼驗證通過；**只放行** `bootstrap list create update void lock unlock`，`adminGet adminSave adminStores adminList pnlSummary` 用金鑰一律回 `FORBIDDEN`。金鑰錯誤回 `AUTH_FAIL`，與通行碼共用同一個失敗鎖 |
+| `STORE_LOGIN_OFF` | 空（關） | 設 `1`＝店長通行碼登入一律回 `MOVED_TO_STORE_OPS`（前端顯示「現金帳已搬進門市營運系統，請改用門市營運系統登入」）。管理通行碼（會計）、損益連接器、金鑰通道不受影響。**切換日才開；回退＝刪掉這行並重啟** |
+| `LEGACY_STORE_CODE` | `MDGF` | 舊店長通行碼路徑與損益 `pnlSummary`（不帶 `store`）使用的門市代號；既有光復的帳、月結、常用項目、冪等紀錄首次啟動時會被標成這個代號。上線前請確認是光復的真實門市代號，**一旦有新店的帳就不要再改它** |
+
+**資料庫遷移**：伺服器啟動時自動執行、可重跑、不毀資料。第一次升級會先把整個資料庫複製到 `~/mala-cashbook-data/snapshots/cashbook-pre-multistore-<時間>.db`（只在結構真的要改時做一次），再把 `locks`、`frequent`、`create_tokens` 加上店別欄（月結改「店＋月」、常用項目與冪等範圍各店分開），並把 `rows.store` 不是門市代號的列（舊值「新竹光復」）換成 `LEGACY_STORE_CODE`。對外顯示的光復店名不變。**更新前仍照慣例**先 `cp cashbook.db cashbook.db.before-update`。
+
+**會計端**：設定頁（管理通行碼）解鎖後多一張「各店明細與匯出」：選店別、月份→讀取明細→下載 Excel，檔名帶店名（光復＝「新竹光復」，其他店目前顯示門市代號）。只用管理通行碼，不必店長登入；匯出格式不變。
+
+**金鑰由 Eason 在 Mac mini 終端機自己寫入，Claude 不經手、不讀 `.env`**（與 `PNL_KEY` 同規矩）。與營運系統的 `.env` 要寫同一把。zsh 提示：`read -rs "X?提示"` 後面**不要**再接變數名。
+
+```sh
+# Eason 在 Mac mini 的「終端機」App 執行（輸入不回顯；金鑰請用密碼管理器產 32 字以上的隨機字串）
+E="$HOME/mala-cashbook/server/.env"
+read -rs "P?STORE_SVC_KEY（與門市營運系統同一把）："; echo
+sed -i '' '/^STORE_SVC_KEY=/d' "$E"; printf 'STORE_SVC_KEY=%s\n' "$P" >> "$E"; unset P
+grep -c '^STORE_SVC_KEY=.\{24,\}$' "$E"      # 要印 1
+# 光復的真實門市代號（只有跟預設 MDGF 不同才需要）：
+# sed -i '' '/^LEGACY_STORE_CODE=/d' "$E"; echo 'LEGACY_STORE_CODE=<光復代號>' >> "$E"
+sudo launchctl kickstart -k system/com.mala.cashbook
+curl -s http://127.0.0.1:8795/cashbook/health        # 要 green
+```
+
+切換日（營運系統現金帳實測通過後）才另外加 `STORE_LOGIN_OFF=1` 並重啟；要回退只刪那一行再重啟，不需要動資料。
+備份（`backup.js`）的 `rows` 分頁「店別」欄現在是門市代號；`frequent`／`locks` 分頁格式不變（多店之後同名項目或月份可能重複出現，備份端未改）。`ROLLBACK.md` 的回寫舊試算表只適合光復單店；有別店的帳時，別店的帳不會、也不該回寫舊系統。

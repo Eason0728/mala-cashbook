@@ -25,7 +25,7 @@ function makeApp(cfg, opts) {
   opts = opts || {};
   const now = opts.now || (() => new Date());
   const log = opts.log || ((s) => console.log(s));
-  const db = opts.db || openDb(cfg.DATA_DIR, now);
+  const db = opts.db || openDb(cfg.DATA_DIR, now, cfg.LEGACY_STORE);
   ensureAdminInit(db, cfg);
   const auth = createAuth(db, now);
   const actions = createActions({ db, cfg, now, auth, writePhoto: opts.writePhoto, log });
@@ -66,7 +66,7 @@ function makeApp(cfg, opts) {
         if (buf === null) { const out = { ok: false, error: 'TOO_LARGE' }; send(res, 413, out, ch); return access(t0, 'api:?', out, req); }
         let body = null;
         try { body = JSON.parse(buf.toString('utf8')); } catch (e) { /* 下面回 BAD_INPUT */ }
-        const out = body ? actions.dispatch(body, clientIp(req)) : { ok: false, error: 'BAD_INPUT' };
+        const out = body ? actions.dispatch(body, clientIp(req), { key: req.headers['x-store-key'], code: req.headers['x-store-code'] }) : { ok: false, error: 'BAD_INPUT' };
         send(res, 200, out, ch);
         const act = body && typeof body.action === 'string' && ACTION_RE.test(body.action) ? body.action : '?';
         return access(t0, 'api:' + act, out, req);
