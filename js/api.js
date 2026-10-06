@@ -151,6 +151,22 @@
       saveDB(db);
       return Promise.resolve({ ok: true, store: s.store, expenseSubjects: s.expenseSubjects, incomeSubjects: s.incomeSubjects });
     },
+    /* 會計跨店查帳（只用管理通行碼）：local 只有一家店（設定裡的店名），與 cloud 同形 */
+    adminStores: function (adminPass) {
+      if (adminPass !== (loadDB().adminPass || '9999')) return fail('AUTH_FAIL');
+      var s = loadDB().settings || window.MockData.settings;
+      return Promise.resolve({ ok: true, stores: [{ code: 'LOCAL', name: s.store }] });
+    },
+    adminList: function (adminPass, store, month) {
+      var db = loadDB(), s = db.settings || window.MockData.settings;
+      if (adminPass !== (db.adminPass || '9999')) return fail('AUTH_FAIL');
+      if (store !== 'LOCAL' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month))) return fail('BAD_INPUT');
+      return Promise.resolve({
+        ok: true, store: store, name: s.store, month: month,
+        rows: db.rows.filter(function (r) { return monthOf(r.date) === month; }),
+        locked: db.lockedMonths.indexOf(month) >= 0
+      });
+    },
     reset: function () { try { localStorage.removeItem(MOCK_KEY); } catch (e) {} return Promise.resolve({ ok: true }); }
   };
 
@@ -206,6 +222,8 @@
     unlock: function (pass, month) { return post('unlock', { pass: pass, month: month }); },
     adminGet: function (adminPass) { return post('adminGet', { adminPass: adminPass }); },
     adminSave: function (adminPass, p) { return post('adminSave', Object.assign({ adminPass: adminPass }, p)); },
+    adminStores: function (adminPass) { return post('adminStores', { adminPass: adminPass }); },
+    adminList: function (adminPass, store, month) { return post('adminList', { adminPass: adminPass, store: store, month: month }); },
     reset: function () { return Promise.resolve({ ok: true }); }
   };
 

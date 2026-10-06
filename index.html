@@ -197,6 +197,23 @@
       <button class="btn" id="btn-set-save" data-busy="儲存中">儲存設定</button>
     </div>
 
+    <!-- 會計跨店明細與匯出：只用管理通行碼，不必先用店長通行碼登入 -->
+    <div class="card" id="acct-card" hidden>
+      <h2>各店明細與匯出</h2>
+      <label class="field">
+        <span>店別</span>
+        <select id="acct-store"></select>
+      </label>
+      <label class="field">
+        <span>月份</span>
+        <input type="month" id="acct-month">
+      </label>
+      <div class="msg error" id="acct-error" hidden></div>
+      <div class="msg info" id="acct-info" hidden></div>
+      <button class="btn btn-secondary" id="btn-acct-load" data-busy="讀取中">讀取該店當月明細</button>
+      <button class="btn" id="btn-acct-export" data-busy="產生中" disabled>下載 Excel</button>
+    </div>
+
     <button class="btn btn-secondary" id="btn-set-back" type="button">回登記畫面</button>
   </section>
 

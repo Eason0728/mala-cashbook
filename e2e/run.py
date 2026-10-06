@@ -158,6 +158,26 @@ def unlock_settings(page, admin_pass, why='讀取設定'):
     wait_btn(page, '#btn-set-load', '讀取設定')
 
 
+def acct_flow(page, month, tag):
+    """會計跨店明細與匯出：只用管理通行碼就能選店→看當月明細→匯出，檔名帶店名。"""
+    check(tag + '管理通行碼解鎖後出現「各店明細與匯出」', page.evaluate("() => !document.getElementById('acct-card').hidden"))
+    check(tag + '店別下拉至少一家', page.evaluate("() => document.querySelectorAll('#acct-store option').length >= 1"))
+    check(tag + '讀取明細前不能下載', page.evaluate("() => document.getElementById('btn-acct-export').disabled"))
+    page.select_option('#acct-store', index=0)
+    CM.mark(page.evaluate(KEY_JS, '#acct-store'), '選店別')
+    page.fill('#acct-month', month)
+    click(page, '#btn-acct-load', tag + '會計讀取所選店當月明細')
+    wait_btn(page, '#btn-acct-load', '讀取該店當月明細')
+    check(tag + '讀取後顯示筆數與合計', '筆' in text(page, '#acct-info') and '支出' in text(page, '#acct-info'), text(page, '#acct-info'))
+    check(tag + '讀取後才能下載', page.evaluate("() => !document.getElementById('btn-acct-export').disabled"))
+    with page.expect_download(timeout=15000) as dl:
+        click(page, '#btn-acct-export', tag + '會計匯出所選店當月 Excel')
+    fname = dl.value.suggested_filename
+    store_name = page.evaluate("() => document.getElementById('acct-store').selectedOptions[0].getAttribute('data-name')")
+    check(tag + '會計匯出檔名帶店名與月份且是 xlsx', fname.endswith('.xlsx') and store_name in fname and month in fname, fname)
+    wait_btn(page, '#btn-acct-export', '下載 Excel')
+
+
 def run_settings(page, data):
     """設定頁（local）：管理通行碼、科目增改、兩次確認、回記帳頁看到新科目。"""
     # 快照背景更新被後端明確拒絕（被鎖）時，要講白話原因，不能一律說「連不上後端」
@@ -190,6 +210,7 @@ def run_settings(page, data):
 
     unlock_settings(page, '9999', '管理通行碼正確讀取設定')
     page.wait_for_selector('#set-form:not([hidden])')
+    acct_flow(page, data['month'], '')
     CM.scan(page, '設定（已解鎖）')
     got = [l for l in val(page, '#set-expense').split('\n') if l]
     check('設定頁讀出目前的支出科目', got == data['expenseSubjects'], got)
@@ -349,6 +370,7 @@ def run_cloud(pw, engine, label, data):
         check('cloud 管理通行碼打錯被擋下', '通行碼' in text(page, '#set-error'), text(page, '#set-error'))
         unlock_settings(page, admin_pass, 'cloud 管理碼正確')
         page.wait_for_selector('#set-form:not([hidden])')
+        acct_flow(page, page.evaluate("() => window.App.monthOf(window.App.todayISO())"), 'cloud ')
         CM.scan(page, 'cloud 設定（已解鎖）')
         check('管理通行碼不落地（localStorage／sessionStorage 都沒有）', not page.evaluate(STORE_HAS, admin_pass))
         new_subj = '雲端新科目%d' % seed

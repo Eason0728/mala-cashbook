@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { getSetting, setSetting, taipeiStamp } = require('./db');
+const { getSetting, setSetting, taipeiStamp, STORE_CODE_RE } = require('./db');
 const { AuthError, setStorePass, setAdminPass } = require('./auth');
 
 class ActionError extends Error { constructor(code) { super(code); this.code = code; } }
@@ -24,9 +24,9 @@ function splitTax(amount, hasInvoice) {
   return { net, tax: amt - net };
 }
 
-function toApi(r, withVoid) {
+function toApi(r, withVoid, storeLabel) {
   const o = {
-    id: r.id, store: r.store, date: r.date, kind: r.kind, subject: r.subject, name: r.name, amount: r.amount,
+    id: r.id, store: storeLabel === undefined ? r.store : storeLabel, date: r.date, kind: r.kind, subject: r.subject, name: r.name, amount: r.amount,
     hasInvoice: !!r.has_invoice, net: r.net, tax: r.tax, seq: r.seq, photo: r.photo, author: r.author,
     createdAt: r.created_at, status: r.status
   };
@@ -46,55 +46,59 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
   const putPhoto = writePhoto || defaultWritePhoto;
   const readonlyFile = path.join(cfg.DATA_DIR, 'READONLY');
 
-  // ---------- 共用 ----------
-  const lockedMonths = () => db.prepare('SELECT month FROM locks WHERE status = ? ORDER BY locked_at, rowid').all('鎖定').map((r) => r.month);
-  function assertOpen(month) { if (db.prepare("SELECT 1 FROM locks WHERE month = ? AND status = '鎖定'").get(month)) throw E('LOCKED'); }
-  function frequentList() {
-    return db.prepare("SELECT subject, name, count, last_used FROM frequent WHERE subject <> '' AND name <> '' ORDER BY last_used DESC, count DESC, rowid")
-      .all().map((f) => ({ subject: String(f.subject), name: String(f.name), count: Number(f.count) || 0, lastUsed: String(f.last_used || '') }));
+  const LEGACY = cfg.LEGACY_STORE || db.legacyStore || 'MDGF';
+  // ---------- 共用（所有店長動作都帶 store＝門市代號；舊通行碼路徑固定 LEGACY）----------
+  const lockedMonths = (store) => db.prepare('SELECT month FROM locks WHERE store = ? AND status = ? ORDER BY locked_at, rowid').all(store, '鎖定').map((r) => r.month);
+  function assertOpen(store, month) { if (db.prepare("SELECT 1 FROM locks WHERE store = ? AND month = ? AND status = '鎖定'").get(store, month)) throw E('LOCKED'); }
+  function frequentList(store) {
+    return db.prepare("SELECT subject, name, count, last_used FROM frequent WHERE store = ? AND subject <> '' AND name <> '' ORDER BY last_used DESC, count DESC, rowid")
+      .all(store).map((f) => ({ subject: String(f.subject), name: String(f.name), count: Number(f.count) || 0, lastUsed: String(f.last_used || '') }));
   }
-  function bumpFrequent(subject, name) {
-    db.prepare(`INSERT INTO frequent (subject, name, count, last_used) VALUES (?, ?, 1, ?)
-      ON CONFLICT(subject, name) DO UPDATE SET count = count + 1, last_used = excluded.last_used`).run(subject, name, stamp());
+  function bumpFrequent(store, subject, name) {
+    db.prepare(`INSERT INTO frequent (store, subject, name, count, last_used) VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT(store, subject, name) DO UPDATE SET count = count + 1, last_used = excluded.last_used`).run(store, subject, name, stamp());
   }
-  const rowsOfMonth = (month) => db.prepare('SELECT * FROM rows WHERE substr(date, 1, 7) = ? ORDER BY rowid').all(month);
-  function findRow(id) {
-    const r = typeof id === 'string' ? db.prepare('SELECT * FROM rows WHERE id = ?').get(id) : null;
+  const rowsOfMonth = (store, month) => db.prepare('SELECT * FROM rows WHERE store = ? AND substr(date, 1, 7) = ? ORDER BY rowid').all(store, month);
+  function findRow(store, id) {
+    const r = typeof id === 'string' ? db.prepare('SELECT * FROM rows WHERE id = ? AND store = ?').get(id, store) : null;
     if (!r) throw E('NOT_FOUND');
     return r;
   }
   const subjects = (key) => { try { const a = JSON.parse(getSetting(db, key) || '[]'); return Array.isArray(a) ? a.map(String) : []; } catch (e) { return []; } };
   const storeName = () => getSetting(db, 'store') || '新竹光復';
+  // 對外顯示的店別：legacy 維持原本的店名（行為不變），其他店直接用門市代號
+  const label = (store) => (store === LEGACY ? storeName() : store);
+  const api = (r, withVoid) => toApi(r, withVoid, label(r.store));
 
   // ---------- 八個動作 ----------
-  function bootstrap(req) {
+  function bootstrap(req, store) {
     const out = {
-      settings: { store: storeName(), expenseSubjects: subjects('expense_subjects'), incomeSubjects: subjects('income_subjects') },
-      frequent: frequentList(), lockedMonths: lockedMonths()
+      settings: { store: label(store), expenseSubjects: subjects('expense_subjects'), incomeSubjects: subjects('income_subjects') },
+      frequent: frequentList(store), lockedMonths: lockedMonths(store)
     };
-    if (req && req.month) { out.rows = rowsOfMonth(String(req.month)).map((r) => toApi(r, true)); out.month = req.month; }
+    if (req && req.month) { out.rows = rowsOfMonth(store, String(req.month)).map((r) => api(r, true)); out.month = req.month; }
     return out;
   }
-  function list(req) { return { rows: rowsOfMonth(String(req.month)).map((r) => toApi(r, true)) }; }
+  function list(req, store) { return { rows: rowsOfMonth(store, String(req.month)).map((r) => api(r, true)) }; }
 
-  function create(req) {
+  function create(req, store) {
     // 冪等：同一個 clientToken 永遠只會有一筆帳（永久保存，不是 6 小時快取）
     let tokenKey = '';
     if (req.clientToken) {
       tokenKey = String(req.clientToken).slice(0, 120);
-      const seen = db.prepare('SELECT row_id FROM create_tokens WHERE token = ?').get(tokenKey);
+      const seen = db.prepare('SELECT row_id FROM create_tokens WHERE store = ? AND token = ?').get(store, tokenKey);
       const hit = seen && db.prepare('SELECT * FROM rows WHERE id = ?').get(seen.row_id);
-      if (hit) return { row: toApi(hit, false), frequent: frequentList(), duplicate: true };   // 不再寫入、不再 bumpFrequent
+      if (hit) return { row: api(hit, false), frequent: frequentList(store), duplicate: true };   // 不再寫入、不再 bumpFrequent
     }
     const month = monthOf(req.date);
-    assertOpen(month);
+    assertOpen(store, month);
     if (!req.date || !req.subject || !req.name || !(Number(req.amount) > 0)) throw E('BAD_INPUT');
     if (typeof req.date !== 'string' || !DATE_RE.test(req.date) || (req.kind !== '支出' && req.kind !== '收入')) throw E('BAD_INPUT');
     const amountInt = Math.round(Number(req.amount));
     if (!validAmount(amountInt)) throw E('BAD_INPUT');
     const subject = cleanText(req.subject), name = cleanText(req.name);
 
-    const monthRows = rowsOfMonth(month);
+    const monthRows = rowsOfMonth(store, month);
     let seq = 0;
     monthRows.forEach((r) => { if (r.kind === req.kind && r.seq > seq) seq = r.seq; });
     const t = splitTax(amountInt, req.hasInvoice);
@@ -116,7 +120,7 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
       } catch (e) { warning = 'PHOTO_FAIL'; }   // 照片失敗不能害這筆帳記不成
     }
     const row = {
-      id, store: storeName(), date: req.date, kind: req.kind, subject, name,
+      id, store, date: req.date, kind: req.kind, subject, name,
       amount: amountInt, has_invoice: req.hasInvoice ? 1 : 0, net: t.net, tax: t.tax, seq: seq + 1,
       photo: photoUrl, author: '店長', created_at: stamp(), status: '正常'
     };
@@ -124,50 +128,50 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
       db.prepare(`INSERT INTO rows (id, store, date, kind, subject, name, amount, has_invoice, net, tax, seq, photo, author, created_at, status, photo_file)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(row.id, row.store, row.date, row.kind, row.subject, row.name, row.amount, row.has_invoice,
         row.net, row.tax, row.seq, row.photo, row.author, row.created_at, row.status, photoFile);
-      bumpFrequent(row.subject, row.name);
-      if (tokenKey) db.prepare('INSERT INTO create_tokens (token, row_id, created_at) VALUES (?,?,?)').run(tokenKey, id, row.created_at);
+      bumpFrequent(store, row.subject, row.name);
+      if (tokenKey) db.prepare('INSERT INTO create_tokens (store, token, row_id, created_at) VALUES (?,?,?,?)').run(store, tokenKey, id, row.created_at);
     } catch (e) {
       if (photoFile) { try { fs.unlinkSync(path.join(photoDir, photoFile + '.jpg')); } catch (e2) { /* 沒檔案 */ } }
       throw e;
     }
-    const out = { row: toApi(row, false), frequent: frequentList() };
+    const out = { row: api(row, false), frequent: frequentList(store) };
     if (warning) out.warning = warning;
     return out;
   }
 
-  function update(req) {
-    const target = findRow(req.id);
-    assertOpen(monthOf(target.date));
+  function update(req, store) {
+    const target = findRow(store, req.id);
+    assertOpen(store, monthOf(target.date));
     const date = req.date || target.date;
     const amount = req.amount !== undefined ? Math.round(Number(req.amount)) : target.amount;
     const hasInvoice = req.hasInvoice !== undefined ? !!req.hasInvoice : !!target.has_invoice;
-    assertOpen(monthOf(date));
+    assertOpen(store, monthOf(date));
     const kind = req.kind || target.kind;
     if (typeof date !== 'string' || !DATE_RE.test(date) || !validAmount(amount) || (kind !== '支出' && kind !== '收入')) throw E('BAD_INPUT');
     const t = splitTax(amount, hasInvoice);
     db.prepare('UPDATE rows SET date = ?, kind = ?, subject = ?, name = ?, amount = ?, has_invoice = ?, net = ?, tax = ? WHERE id = ?')
       .run(date, kind, req.subject ? cleanText(req.subject) : target.subject, req.name ? cleanText(req.name) : target.name, amount, hasInvoice ? 1 : 0, t.net, t.tax, target.id);
-    return { row: toApi(findRow(req.id), true) };
+    return { row: api(findRow(store, req.id), true) };
   }
 
   // 作廢：只改狀態，資料列永遠留著
-  function voidRow(req) {
-    const target = findRow(req.id);
-    assertOpen(monthOf(target.date));
+  function voidRow(req, store) {
+    const target = findRow(store, req.id);
+    assertOpen(store, monthOf(target.date));
     const reason = req.reason ? String(req.reason) : '';
     if (reason.length > 200) throw E('BAD_INPUT');
     db.prepare("UPDATE rows SET status = '作廢', voided_at = ?, void_reason = ? WHERE id = ?").run(stamp(), reason, target.id);
-    return { row: toApi(findRow(req.id), true) };
+    return { row: api(findRow(store, req.id), true) };
   }
 
-  function lock(req) {
+  function lock(req, store) {
     if (typeof req.month !== 'string' || !MONTH_RE.test(req.month)) throw E('BAD_INPUT');
-    db.prepare("INSERT OR IGNORE INTO locks (month, status, locked_at) VALUES (?, '鎖定', ?)").run(req.month, stamp());
-    return { lockedMonths: lockedMonths() };
+    db.prepare("INSERT OR IGNORE INTO locks (store, month, status, locked_at) VALUES (?, ?, '鎖定', ?)").run(store, req.month, stamp());
+    return { lockedMonths: lockedMonths(store) };
   }
-  function unlock(req) {
-    db.prepare('DELETE FROM locks WHERE month = ?').run(String(req.month));
-    return { lockedMonths: lockedMonths() };
+  function unlock(req, store) {
+    db.prepare('DELETE FROM locks WHERE store = ? AND month = ?').run(store, String(req.month));
+    return { lockedMonths: lockedMonths(store) };
   }
 
   // 損益系統唯讀端點：獨立金鑰 PNL_KEY，不走通行碼。長度不同或型別錯一律 AUTH；長度相同才逐位元常數時間比對
@@ -181,7 +185,12 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
     assertPnlKey(req.key);
     const month = req.month;
     if (typeof month !== 'string' || !MONTH_RE.test(month)) throw E('BAD_INPUT');
-    const rows = rowsOfMonth(month).filter((r) => r.status !== '作廢');
+    let store = LEGACY;   // 不帶 store＝光復（舊行為，損益系統不用同時改）
+    if (req.store !== undefined && req.store !== null && req.store !== '') {
+      if (typeof req.store !== 'string' || !STORE_CODE_RE.test(req.store)) throw E('BAD_INPUT');
+      store = req.store;
+    }
+    const rows = rowsOfMonth(store, month).filter((r) => r.status !== '作廢');
     const expense = {}, income = {};
     let skipped = 0;
     rows.forEach((r) => {
@@ -189,12 +198,23 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
       const bucket = r.kind === '收入' ? income : expense;
       bucket[r.subject] = (bucket[r.subject] || 0) + r.amount;
     });
-    return { month, store: storeName(), expense, income, rows: rows.length, skipped, locked: lockedMonths().indexOf(month) >= 0 };
+    return { month, store: label(store), expense, income, rows: rows.length, skipped, locked: lockedMonths(store).indexOf(month) >= 0 };
   }
 
   // ---------- 設定頁（會計）----------
   const adminView = () => ({ store: storeName(), expenseSubjects: subjects('expense_subjects'), incomeSubjects: subjects('income_subjects') });
   function adminGet() { return adminView(); }   // 永不回任何通行碼或雜湊
+  // 會計跨店查帳：只用管理通行碼。店別清單＝有帳或有月結的店＋光復
+  function adminStores() {
+    const codes = new Set([LEGACY]);
+    db.prepare('SELECT DISTINCT store FROM rows').all().forEach((r) => codes.add(r.store));
+    db.prepare('SELECT DISTINCT store FROM locks').all().forEach((r) => codes.add(r.store));
+    return { stores: [...codes].filter((c) => STORE_CODE_RE.test(c)).sort((a, b) => (a === LEGACY ? -1 : b === LEGACY ? 1 : a < b ? -1 : 1)).map((c) => ({ code: c, name: label(c) })) };
+  }
+  function adminList(req) {
+    if (typeof req.store !== 'string' || !STORE_CODE_RE.test(req.store) || typeof req.month !== 'string' || !MONTH_RE.test(req.month)) throw E('BAD_INPUT');
+    return { store: req.store, name: label(req.store), month: req.month, rows: rowsOfMonth(req.store, req.month).map((r) => api(r, true)), locked: lockedMonths(req.store).indexOf(req.month) >= 0 };
+  }   // 永不回任何通行碼或雜湊
   function cleanSubjects(v) {
     if (!Array.isArray(v) || v.length === 0 || v.length > 100) throw E('BAD_INPUT');
     const out = [];
@@ -220,31 +240,44 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
   }
 
   const STORE_ACTIONS = { bootstrap, list, create, update, void: voidRow, lock, unlock };
+  const ADMIN_ACTIONS = { adminGet, adminSave, adminStores, adminList };
   const WRITES = new Set(['create', 'update', 'void', 'lock', 'unlock', 'adminSave']);
   const readonly = () => fs.existsSync(readonlyFile);
 
   // 入口：回傳 {ok:true,...} 或 {ok:false,error}；HTTP 層永遠 200。寫入包 transaction（單一行程依序執行）。
-  function dispatch(req, ip) {
+  // svc＝{ key, code }：HTTP 標頭 X-Store-Key／X-Store-Code。STORE_SVC_KEY 未設時整個忽略（行為與舊版完全相同）。
+  function dispatch(req, ip, svc) {
     try {
       if (!req || typeof req !== 'object' || Array.isArray(req)) throw E('BAD_INPUT');
       const action = req.action;
-      let fn;
-      if (action === 'pnlSummary') fn = pnlSummary;
-      else if (action === 'adminGet' || action === 'adminSave') {
+      const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+      const viaKey = !!cfg.STORE_SVC_KEY && !!svc && typeof svc.key === 'string' && svc.key !== '';
+      let fn, store = LEGACY;
+      if (viaKey) {
+        auth.checkKey(svc.key, cfg.STORE_SVC_KEY, ip);   // 金鑰錯：AUTH_FAIL（計入失敗鎖）
+        // 只放行門市端動作；會計／損益動作用金鑰一律拒絕
+        if (action === 'pnlSummary' || has(ADMIN_ACTIONS, action)) throw E('FORBIDDEN');
+        fn = has(STORE_ACTIONS, action) ? STORE_ACTIONS[action] : null;
+        if (!fn) throw E('BAD_INPUT');
+        if (typeof svc.code !== 'string' || !STORE_CODE_RE.test(svc.code)) throw E('BAD_INPUT');
+        store = svc.code;
+      } else if (action === 'pnlSummary') fn = pnlSummary;
+      else if (has(ADMIN_ACTIONS, action)) {
         auth.checkAdmin(req.adminPass, ip);
-        fn = action === 'adminGet' ? adminGet : adminSave;
+        fn = ADMIN_ACTIONS[action];
       } else {
+        if (cfg.STORE_LOGIN_OFF && has(STORE_ACTIONS, action)) throw E('MOVED_TO_STORE_OPS');   // 店長通行碼登入關閉：不論碼對不對
         auth.checkStore(req.pass, ip);
-        fn = Object.prototype.hasOwnProperty.call(STORE_ACTIONS, action) ? STORE_ACTIONS[action] : null;
+        fn = has(STORE_ACTIONS, action) ? STORE_ACTIONS[action] : null;
         if (!fn) throw E('BAD_INPUT');
       }
       if (WRITES.has(action)) {
         if (readonly()) throw E('READONLY');
-        const out = db.tx(() => fn(req));
+        const out = db.tx(() => fn(req, store));
         out.ok = true;
         return out;
       }
-      const out = fn(req);
+      const out = fn(req, store);
       out.ok = true;
       return out;
     } catch (err) {

@@ -29,8 +29,59 @@
         el('set-income').value = (res.incomeSubjects || []).join('\n');
         ['set-new-store', 'set-new-store2', 'set-new-admin', 'set-new-admin2'].forEach(function (id) { el(id).value = ''; });
         el('set-form').hidden = false;
+        return loadStores(pass);
       });
     }, { doneText: '已讀取 ✓', onError: function (m) { note('set-error', m); } }).catch(function () {});
+  }
+
+  /* ---- 會計跨店明細與匯出（只用管理通行碼；不必先用店長通行碼登入）---- */
+  var acctRows = null, acctSel = null;   // 最近一次讀到的明細與它對應的店別／月份
+
+  function acctReset() { acctRows = null; acctSel = null; el('btn-acct-export').disabled = true; note('acct-info', ''); note('acct-error', ''); }
+
+  function loadStores(pass) {
+    return window.Api.adminStores(pass).then(function (res) {
+      var sel = el('acct-store');
+      sel.innerHTML = '';
+      (res.stores || []).forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s.code;
+        o.textContent = s.name === s.code ? s.code : s.name + '（' + s.code + '）';
+        o.setAttribute('data-name', s.name);
+        sel.appendChild(o);
+      });
+      if (!el('acct-month').value) el('acct-month').value = window.App.monthOf(window.App.todayISO());
+      acctReset();
+      el('acct-card').hidden = false;
+    });
+  }
+
+  function acctLoad(btn) {
+    acctReset();
+    var sel = el('acct-store'), store = sel.value, month = el('acct-month').value;
+    if (!store) { note('acct-error', '請先選店別'); return; }
+    if (!/^\d{4}-\d{2}$/.test(month)) { note('acct-error', '請先選月份'); return; }
+    var name = sel.options[sel.selectedIndex].getAttribute('data-name') || store;
+    return window.Busy.run(btn, function () {
+      return window.Api.adminList(adminPass, store, month).then(function (res) {
+        acctRows = res.rows || []; acctSel = { store: store, month: month, name: res.name || name };
+        var live = acctRows.filter(function (r) { return r.status !== '作廢'; });
+        var sum = window.Calc.summarize(acctRows);
+        note('acct-info', acctSel.name + '　' + month + '：共 ' + live.length + ' 筆（作廢 ' + (acctRows.length - live.length) + ' 筆不匯出）　支出 ' +
+          window.App.money(sum.expense) + '　收入 ' + window.App.money(sum.income) + (res.locked ? '　已月結鎖定' : ''));
+        el('btn-acct-export').disabled = false;
+      });
+    }, { doneText: '已讀取 ✓', onError: function (m) { note('acct-error', m); } }).catch(function () {});
+  }
+
+  function acctExport(btn) {
+    if (!acctRows || !acctSel) { note('acct-error', '請先讀取明細'); return; }
+    var sel = acctSel;
+    return window.Busy.run(btn, function () {
+      return window.Exporter.run(adminPass, sel.month, acctRows, sel.name);
+    }, { doneText: '已下載 ✓', onError: function (m, err) {
+      note('acct-error', (err && err.message) === 'XLSX_MISSING' ? '匯出元件沒有載入成功，請重新整理頁面再試' : m);
+    } }).catch(function () {});
   }
 
   var SAVE_UNSURE = '無法確認是否已儲存，不要直接再按一次。請重新整理頁面後進設定頁看一眼科目有沒有變；有換管理通行碼的話，舊碼進不去就改用新碼，有換店長通行碼的話，用新碼登入試試看。';
@@ -116,6 +167,9 @@
     el('btn-open-settings').addEventListener('click', function () { window.App.show('settings'); });
     el('btn-set-load').addEventListener('click', function () { load(el('btn-set-load')); });
     el('btn-set-save').addEventListener('click', function () { save(el('btn-set-save')); });
+    el('btn-acct-load').addEventListener('click', function () { acctLoad(el('btn-acct-load')); });
+    el('btn-acct-export').addEventListener('click', function () { acctExport(el('btn-acct-export')); });
+    ['acct-store', 'acct-month'].forEach(function (id) { el(id).addEventListener('change', acctReset); });
     el('btn-set-back').addEventListener('click', function () { window.App.show('entry'); });
   }
 
@@ -123,10 +177,11 @@
   function onShow() {
     note('set-error', ''); note('set-ok', '');
     adminPass = ''; el('set-admin-pass').value = ''; el('set-form').hidden = true;
+    el('acct-card').hidden = true; acctReset();
   }
 
   // 離開設定頁就把管理通行碼從記憶體清掉
-  function clear() { adminPass = ''; }
+  function clear() { adminPass = ''; acctRows = null; }
 
   window.ViewSettings = { init: init, onShow: onShow, clear: clear };
 })();
