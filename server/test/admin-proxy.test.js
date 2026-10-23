@@ -208,3 +208,28 @@ test('舊庫補欄位：沒有新欄位的舊 db 開庫後補齊、資料不壞�
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('adminLock 接手：店長鎖→會計鎖後來源改 acct、店長 unlock 回 LOCKED_BY_ACCT；已是 acct 冪等不動', () => {
+  const s = mkSetup();
+  try {
+    s.call('lock', { month: '2026-08' });
+    s.db.prepare("INSERT INTO locks (store, month, status, locked_at) VALUES ('MDGF', '2026-07', '鎖定', 'old')").run();   // 舊資料：來源空值
+    for (const m of ['2026-08', '2026-07']) {
+      assert.strictEqual(s.ch('adminLock', { store: 'MDGF', month: m }).ok, true);
+      const lk = s.ch('adminLocks', { store: 'MDGF' }).locks.find((x) => x.month === m);
+      assert.deepStrictEqual([lk.lockedBy, lk.lockedVia, lk.status], [OP, 'acct', '鎖定']);
+      assert.notStrictEqual(lk.lockedAt, 'old');
+      assert.strictEqual(s.call('unlock', { month: m }).error, 'LOCKED_BY_ACCT');
+    }
+    const l = s.log();
+    assert.strictEqual(l.length, 2);
+    assert.ok(l.every((x) => x.action === 'adminLock' && x.detail === '由店長鎖定改為會計鎖定'));
+    // 已是 acct：不動 locked_at，detail 空
+    const before = s.ch('adminLocks', { store: 'MDGF' }).locks.find((x) => x.month === '2026-08').lockedAt;
+    s.clock.ms += 3600e3;
+    s.actions.dispatch({ action: 'adminLock', adminKey: AKEY, operator: '另一位（acct2）（管理系統）', store: 'MDGF', month: '2026-08' }, '4.4.4.4');
+    const lk2 = s.ch('adminLocks', { store: 'MDGF' }).locks.find((x) => x.month === '2026-08');
+    assert.deepStrictEqual([lk2.lockedAt, lk2.lockedBy], [before, OP]);
+    assert.strictEqual(s.log()[2].detail, '');
+  } finally { s.cleanup(); }
+});

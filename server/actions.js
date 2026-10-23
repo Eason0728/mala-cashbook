@@ -269,8 +269,14 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
   }
   function adminLock(req) {
     const store = needStore(req), month = needMonth(req);
-    db.prepare("INSERT OR IGNORE INTO locks (store, month, status, locked_at, locked_by, locked_via) VALUES (?, ?, '鎖定', ?, ?, 'acct')").run(store, month, stamp(), req.operator);
-    adminLog(req, 'adminLock', store, month, '', '');
+    const cur = db.prepare('SELECT locked_via FROM locks WHERE store = ? AND month = ?').get(store, month);
+    let detail = '';
+    if (!cur) db.prepare("INSERT INTO locks (store, month, status, locked_at, locked_by, locked_via) VALUES (?, ?, '鎖定', ?, ?, 'acct')").run(store, month, stamp(), req.operator);
+    else if (cur.locked_via !== 'acct') {   // 接手：店長（或舊資料）鎖的月份改成會計鎖，之後只有會計能解
+      db.prepare("UPDATE locks SET status = '鎖定', locked_at = ?, locked_by = ?, locked_via = 'acct' WHERE store = ? AND month = ?").run(stamp(), req.operator, store, month);
+      detail = '由店長鎖定改為會計鎖定';
+    }
+    adminLog(req, 'adminLock', store, month, '', detail);
     return { ok: true };
   }
   function adminUnlock(req) {
