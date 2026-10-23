@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS locks (store TEXT NOT NULL DEFAULT '', month TEXT NOT
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS create_tokens (store TEXT NOT NULL DEFAULT '', token TEXT NOT NULL, row_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (store, token));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS admin_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, operator TEXT NOT NULL, action TEXT NOT NULL,
+  store TEXT NOT NULL DEFAULT '', month TEXT NOT NULL DEFAULT '', row_id TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '');
 `;
 
 // 台北時間字串 YYYY-MM-DDTHH:mm:ss+08:00（與舊版 createdAt 同格式）
@@ -87,6 +89,10 @@ function openDb(dataDir, now, legacyStore) {
   db.legacyStore = legacy;
   db.exec(SCHEMA);
   migrateMultistore(db, dataDir, now, legacy);
+  // 管理系統通道（2026-10-24）：舊庫補欄位，已有就跳過（可重複執行）。舊資料為空字串
+  [['rows', 'voided_by'], ['locks', 'locked_by'], ['locks', 'locked_via']].forEach(([t, c]) => {
+    if (!hasCol(db, t, c)) db.exec('ALTER TABLE ' + t + ' ADD COLUMN ' + c + " TEXT NOT NULL DEFAULT ''");
+  });
   db.exec('PRAGMA user_version = 2');
   // 交易：同一個行程依序處理，不支援巢狀；失敗一律回滾後把錯誤丟出去
   db.tx = (fn) => {

@@ -233,7 +233,7 @@ test('遷移：舊結構庫啟動時自動升級、先備份到 snapshots/、現
     assert.strictEqual(sdb.prepare("SELECT store FROM rows WHERE id='2026-09-001'").get().store, '新竹光復');
     assert.ok(!sdb.prepare('PRAGMA table_info(locks)').all().some((c) => c.name === 'store')); sdb.close();
     assert.deepStrictEqual(d1.prepare('SELECT id, store FROM rows ORDER BY id').all().map((r) => [r.id, r.store]), [['2026-09-001', 'MDGF'], ['2026-09-002', 'MDGF']]);
-    assert.deepStrictEqual(d1.prepare('SELECT * FROM locks').all().map((r) => ({ ...r })), [{ store: 'MDGF', month: '2026-08', status: '鎖定', locked_at: '2026-09-02T09:00:00+08:00' }]);
+    assert.deepStrictEqual(d1.prepare('SELECT * FROM locks').all().map((r) => ({ ...r })), [{ store: 'MDGF', month: '2026-08', status: '鎖定', locked_at: '2026-09-02T09:00:00+08:00', locked_by: '', locked_via: '' }]);
     assert.strictEqual(d1.prepare('SELECT store, count FROM frequent').get().store, 'MDGF');
     assert.strictEqual(d1.prepare('SELECT store FROM create_tokens').get().store, 'MDGF');
     d1.close();

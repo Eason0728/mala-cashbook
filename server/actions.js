@@ -30,7 +30,7 @@ function toApi(r, withVoid, storeLabel) {
     hasInvoice: !!r.has_invoice, net: r.net, tax: r.tax, seq: r.seq, photo: r.photo, author: r.author,
     createdAt: r.created_at, status: r.status
   };
-  if (withVoid) { o.voidedAt = r.voided_at; o.voidReason = r.void_reason; }   // 同 Code.gs：只有 allRows/findRow 路徑帶這兩欄
+  if (withVoid) { o.voidedAt = r.voided_at; o.voidReason = r.void_reason; o.voidedBy = r.voided_by || ''; }   // 同 Code.gs：只有 allRows/findRow 路徑帶這兩欄
   return o;
 }
 
@@ -166,10 +166,12 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
 
   function lock(req, store) {
     if (typeof req.month !== 'string' || !MONTH_RE.test(req.month)) throw E('BAD_INPUT');
-    db.prepare("INSERT OR IGNORE INTO locks (store, month, status, locked_at) VALUES (?, ?, '鎖定', ?)").run(store, req.month, stamp());
+    db.prepare("INSERT OR IGNORE INTO locks (store, month, status, locked_at, locked_by, locked_via) VALUES (?, ?, '鎖定', ?, '店長', 'store')").run(store, req.month, stamp());
     return { lockedMonths: lockedMonths(store) };
   }
   function unlock(req, store) {
+    const cur = db.prepare('SELECT locked_via FROM locks WHERE store = ? AND month = ?').get(store, String(req.month));
+    if (cur && cur.locked_via === 'acct') throw E('LOCKED_BY_ACCT');   // 會計鎖的月份，店長通道不能解
     db.prepare('DELETE FROM locks WHERE store = ? AND month = ?').run(store, String(req.month));
     return { lockedMonths: lockedMonths(store) };
   }
@@ -213,7 +215,9 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
   }
   function adminList(req) {
     if (typeof req.store !== 'string' || !STORE_CODE_RE.test(req.store) || typeof req.month !== 'string' || !MONTH_RE.test(req.month)) throw E('BAD_INPUT');
-    return { store: req.store, name: label(req.store), month: req.month, rows: rowsOfMonth(req.store, req.month).map((r) => api(r, true)), locked: lockedMonths(req.store).indexOf(req.month) >= 0 };
+    const lk = db.prepare("SELECT locked_by, locked_via FROM locks WHERE store = ? AND month = ? AND status = '鎖定'").get(req.store, req.month);
+    return { store: req.store, name: label(req.store), month: req.month, rows: rowsOfMonth(req.store, req.month).map((r) => api(r, true)), locked: !!lk,
+      lockedBy: lk ? lk.locked_by || '' : '', lockedVia: lk ? lk.locked_via || '' : '' };
   }   // 永不回任何通行碼或雜湊
   function cleanSubjects(v) {
     if (!Array.isArray(v) || v.length === 0 || v.length > 100) throw E('BAD_INPUT');
@@ -239,9 +243,54 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
     return adminView();
   }
 
+  // ---------- 管理系統（會計）通道專用：只能走 adminKey ----------
+  function adminLog(req, action, store, month, rowId, detail) {
+    db.prepare('INSERT INTO admin_log (at, operator, action, store, month, row_id, detail) VALUES (?,?,?,?,?,?,?)')
+      .run(stamp(), req.operator, action, store || '', month || '', rowId || '', detail || '');
+  }
+  const needStore = (req) => { if (typeof req.store !== 'string' || !STORE_CODE_RE.test(req.store)) throw E('BAD_INPUT'); return req.store; };
+  const needMonth = (req) => { if (typeof req.month !== 'string' || !MONTH_RE.test(req.month)) throw E('BAD_INPUT'); return req.month; };
+  function adminLocks(req) {
+    const store = needStore(req);
+    const locks = db.prepare('SELECT month, status, locked_at, locked_by, locked_via FROM locks WHERE store = ? ORDER BY month DESC').all(store)
+      .map((l) => ({ month: l.month, status: l.status, lockedAt: l.locked_at, lockedBy: l.locked_by || '', lockedVia: l.locked_via || '' }));
+    return { store, locks };
+  }
+  function adminVoid(req) {
+    const store = needStore(req);
+    const reason = typeof req.reason === 'string' ? req.reason.trim() : '';
+    if (reason.length < 1 || reason.length > 200) throw E('BAD_INPUT');
+    const target = findRow(store, req.id);
+    if (target.status === '作廢') throw E('BAD_INPUT');
+    assertOpen(store, monthOf(target.date));
+    db.prepare("UPDATE rows SET status = '作廢', voided_at = ?, void_reason = ?, voided_by = ? WHERE id = ?").run(stamp(), reason, req.operator, target.id);
+    adminLog(req, 'adminVoid', store, monthOf(target.date), target.id, reason);
+    return { ok: true };
+  }
+  function adminLock(req) {
+    const store = needStore(req), month = needMonth(req);
+    db.prepare("INSERT OR IGNORE INTO locks (store, month, status, locked_at, locked_by, locked_via) VALUES (?, ?, '鎖定', ?, ?, 'acct')").run(store, month, stamp(), req.operator);
+    adminLog(req, 'adminLock', store, month, '', '');
+    return { ok: true };
+  }
+  function adminUnlock(req) {
+    const store = needStore(req), month = needMonth(req);
+    const cur = db.prepare('SELECT locked_by, locked_via FROM locks WHERE store = ? AND month = ?').get(store, month);
+    db.prepare('DELETE FROM locks WHERE store = ? AND month = ?').run(store, month);
+    adminLog(req, 'adminUnlock', store, month, '', cur ? (cur.locked_via || 'legacy') + ':' + (cur.locked_by || '') : 'not-locked');
+    return { ok: true };
+  }
+  const CHANNEL_ACTIONS = { adminStores, adminList, adminLocks, adminGet, adminSave: null, adminVoid, adminLock, adminUnlock };
+  function channelSave(req) {
+    const out = adminSave(req);
+    adminLog(req, 'adminSave', '', '', '', JSON.stringify({ expense: req.expenseSubjects !== undefined ? out.expenseSubjects.length : null, income: req.incomeSubjects !== undefined ? out.incomeSubjects.length : null }));
+    return { ok: true };
+  }
+  CHANNEL_ACTIONS.adminSave = channelSave;
+
   const STORE_ACTIONS = { bootstrap, list, create, update, void: voidRow, lock, unlock };
   const ADMIN_ACTIONS = { adminGet, adminSave, adminStores, adminList };
-  const WRITES = new Set(['create', 'update', 'void', 'lock', 'unlock', 'adminSave']);
+  const WRITES = new Set(['create', 'update', 'void', 'lock', 'unlock', 'adminSave', 'adminVoid', 'adminLock', 'adminUnlock']);
   const readonly = () => fs.existsSync(readonlyFile);
 
   // 入口：回傳 {ok:true,...} 或 {ok:false,error}；HTTP 層永遠 200。寫入包 transaction（單一行程依序執行）。
@@ -253,16 +302,26 @@ function createActions({ db, cfg, now, auth, writePhoto, log }) {
       const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
       const viaKey = !!cfg.STORE_SVC_KEY && !!svc && typeof svc.key === 'string' && svc.key !== '';
       let fn, store = LEGACY;
-      if (viaKey) {
+      if (has(req, 'adminKey')) {
+        // 管理系統（會計）通道：金鑰錯＝AUTH_FAIL（計入失敗鎖）；未設 ADMIN_SVC_KEY＝通道關，一律失敗
+        auth.checkKey(req.adminKey, cfg.ADMIN_SVC_KEY, ip);
+        if (typeof action !== 'string' || !has(CHANNEL_ACTIONS, action)) throw E('FORBIDDEN');
+        const op = typeof req.operator === 'string' ? req.operator.trim() : '';
+        if (op.length < 1 || op.length > 60) throw E('BAD_INPUT');
+        if (req.newStorePass !== undefined || req.newAdminPass !== undefined) throw E('BAD_INPUT');   // 通道不准改通行碼
+        req = Object.assign({}, req, { operator: op });
+        fn = CHANNEL_ACTIONS[action];
+      } else if (viaKey) {
         auth.checkKey(svc.key, cfg.STORE_SVC_KEY, ip);   // 金鑰錯：AUTH_FAIL（計入失敗鎖）
         // 只放行門市端動作；會計／損益動作用金鑰一律拒絕
-        if (action === 'pnlSummary' || has(ADMIN_ACTIONS, action)) throw E('FORBIDDEN');
+        if (action === 'pnlSummary' || has(ADMIN_ACTIONS, action) || has(CHANNEL_ACTIONS, action)) throw E('FORBIDDEN');
         fn = has(STORE_ACTIONS, action) ? STORE_ACTIONS[action] : null;
         if (!fn) throw E('BAD_INPUT');
         if (typeof svc.code !== 'string' || !STORE_CODE_RE.test(svc.code)) throw E('BAD_INPUT');
         store = svc.code;
       } else if (action === 'pnlSummary') fn = pnlSummary;
       else if (has(ADMIN_ACTIONS, action)) {
+        if (cfg.ADMIN_LOGIN_OFF) throw E('MOVED_TO_DZY');   // 管理通行碼退場：不論碼對不對
         auth.checkAdmin(req.adminPass, ip);
         fn = ADMIN_ACTIONS[action];
       } else {

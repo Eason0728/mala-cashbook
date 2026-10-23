@@ -29,6 +29,9 @@ function loadConfig(envIn) {
     // 門市營運系統通道（2026-10-06）：STORE_SVC_KEY 未設＝關閉；STORE_LOGIN_OFF=1＝店長通行碼登入回 MOVED_TO_STORE_OPS
     STORE_SVC_KEY: env.STORE_SVC_KEY || '',
     STORE_LOGIN_OFF: env.STORE_LOGIN_OFF === '1',
+    // 管理系統（會計）代轉通道（2026-10-24）：ADMIN_SVC_KEY 未設＝關閉；ADMIN_LOGIN_OFF=1＝管理通行碼呼叫 admin* 回 MOVED_TO_DZY
+    ADMIN_SVC_KEY: env.ADMIN_SVC_KEY || '',
+    ADMIN_LOGIN_OFF: env.ADMIN_LOGIN_OFF === '1',
     LEGACY_STORE: legacyStore,
     BACKUP_URL: env.BACKUP_URL || '',
     BACKUP_KEY: env.BACKUP_KEY || '',
